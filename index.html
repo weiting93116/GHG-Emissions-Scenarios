@@ -290,27 +290,23 @@ header {
     <h3>⚙ COLUMN MAPPING — 欄位對應設定</h3>
     <div class="map-grid">
       <div class="map-group">
-        <label>📅 年份欄位</label>
+        <label>📅 年份欄位 *</label>
         <select id="mapYear"></select>
       </div>
       <div class="map-group">
-        <label>⚡ 能源部門 (kt CO₂e)</label>
-        <select id="mapEnergy"></select>
+        <label>📊 總排放量 (kt CO₂e) *</label>
+        <select id="mapTotal"></select>
       </div>
       <div class="map-group">
-        <label>🏭 工業製程 (kt CO₂e)</label>
-        <select id="mapIndustry"></select>
-      </div>
-      <div class="map-group">
-        <label>🌿 CO₂ 排放量欄位</label>
+        <label>🌿 CO₂ 排放量</label>
         <select id="mapCO2"></select>
       </div>
       <div class="map-group">
-        <label>🐄 CH₄ 排放量欄位</label>
+        <label>🐄 CH₄ 排放量</label>
         <select id="mapCH4"></select>
       </div>
       <div class="map-group">
-        <label>🌾 N₂O 排放量欄位</label>
+        <label>🌾 N₂O 排放量</label>
         <select id="mapN2O"></select>
       </div>
       <div class="map-group">
@@ -318,8 +314,20 @@ header {
         <select id="mapLand"></select>
       </div>
       <div class="map-group">
-        <label>📊 淨排放量（含土地匯）</label>
+        <label>📉 淨排放量（含土地匯）</label>
         <select id="mapNet"></select>
+      </div>
+      <div class="map-group">
+        <label>⚡ 能源部門（選填）</label>
+        <select id="mapEnergy"></select>
+      </div>
+      <div class="map-group">
+        <label>🏭 工業製程（選填）</label>
+        <select id="mapIndustry"></select>
+      </div>
+      <div class="map-group">
+        <label>🌾 農業/廢棄物（選填）</label>
+        <select id="mapAgri"></select>
       </div>
     </div>
     <div class="map-preview">
@@ -599,10 +607,10 @@ async function handleFileChosen(file) {
 function buildColumnSelects(cols, detected, preview) {
   const opts = ['（不使用）', ...cols];
   const maps = [
-    ['mapYear', 'year'], ['mapEnergy', 'energy'], ['mapIndustry', 'industry'],
-    ['mapAgri', 'agri'], ['mapTotal', 'total'],
+    ['mapYear', 'year'], ['mapTotal', 'total'],
     ['mapCO2', 'co2'], ['mapCH4', 'ch4'], ['mapN2O', 'n2o'],
     ['mapLand', 'land'], ['mapNet', 'net'],
+    ['mapEnergy', 'energy'], ['mapIndustry', 'industry'], ['mapAgri', 'agri'],
   ];
   maps.forEach(([id, key]) => {
     const sel = document.getElementById(id);
