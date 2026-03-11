@@ -10,7 +10,27 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
+import json, math
+
 app = Flask(__name__)
+
+def nan_to_none(obj):
+    """遞迴把所有 float NaN / Inf 換成 None，避免 JSON 序列化失敗"""
+    if isinstance(obj, dict):
+        return {k: nan_to_none(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [nan_to_none(v) for v in obj]
+    elif isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
+
+def safe_json(data, status=200):
+    resp = app.response_class(
+        response=json.dumps(nan_to_none(data), ensure_ascii=False),
+        status=status,
+        mimetype='application/json'
+    )
+    return resp
 
 # ─── 前端 HTML（內嵌）─────────────────────────────
 HTML = r"""<!DOCTYPE html>
@@ -553,20 +573,20 @@ def index():
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files: return jsonify({"error":"未收到檔案"}),400
+    if 'file' not in request.files: return safe_json({"error":"未收到檔案"}, 400)
     try:
         df=read_file(request.files['file'])
         detected=detect_columns(df)
         dfc=clean_df(df)
         preview=dfc.head(5).where(pd.notnull(dfc),None).to_dict(orient='records')
-        return jsonify({"columns":list(df.columns),"detected":detected,"preview":preview,"rows":len(df)})
-    except Exception as e: return jsonify({"error":str(e)}),400
+        return safe_json({"columns":list(df.columns),"detected":detected,"preview":preview,"rows":len(df)})
+    except Exception as e: return safe_json({"error":str(e)}, 400)
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    if 'file' not in request.files: return jsonify({"error":"未收到檔案"}),400
+    if 'file' not in request.files: return safe_json({"error":"未收到檔案"}, 400)
     try: df=read_file(request.files['file'])
-    except Exception as e: return jsonify({"error":str(e)}),400
+    except Exception as e: return safe_json({"error":str(e)}, 400)
 
     cm={"year":request.form.get("col_year",""),"energy":request.form.get("col_energy",""),
         "industry":request.form.get("col_industry",""),"agri":request.form.get("col_agri",""),
@@ -585,13 +605,13 @@ def analyze():
     if 'total' not in df.columns:
         gc=[c for c in ['co2','ch4','n2o','hfcs_value','pfcs_value','sf6_value','nf3_value'] if c in df.columns]
         if gc: df['total']=df[gc].sum(axis=1,min_count=1)
-    if 'total' not in df.columns: return jsonify({"error":"找不到總排放量欄位，請確認欄位對應"}),400
+    if 'total' not in df.columns: return safe_json({"error":"找不到總排放量欄位，請確認欄位對應"}, 400)
     dfc=df.dropna(subset=['total']).copy()
-    if len(dfc)<5: return jsonify({"error":f"有效數據不足（{len(dfc)} 筆），至少需要 5 筆"}),400
+    if len(dfc)<5: return safe_json({"error":f"有效數據不足（{len(dfc)} 筆），至少需要 5 筆"}, 400)
 
     ts=dfc['total'].values.astype(float); hy=dfc['year'].tolist(); ly=hy[-1]
     steps=2050-ly
-    if steps<=0: return jsonify({"error":f"資料已涵蓋至 {ly} 年"}),400
+    if steps<=0: return safe_json({"error":f"資料已涵蓋至 {ly} 年"}, 400)
 
     orr=select_arima_order(ts); p,d,q=orr['p'],orr['d'],orr['q']
     fc=arima_forecast(ts,(p,d,q),steps); fy=list(range(ly+1,2051))
@@ -615,7 +635,7 @@ def analyze():
 
     fc_tbl=[{"year":yr,"total":round(fc['forecast'][i],2),"upper95":round(fc['upper95'][i],2),"lower95":round(fc['lower95'][i],2),**{c:None for c in ['energy','industry','agri','land','net','co2','ch4','n2o']}} for i,yr in enumerate(fy)]
 
-    return jsonify({"status":"ok","hist_years":hy,"hist_total":[round(float(v),2) for v in ts],
+    return safe_json({"status":"ok","hist_years":hy,"hist_total":[round(float(v),2) for v in ts],
         "fc_years":fy,"fc_total":[round(float(v),2) for v in fc['forecast']],
         "fc_upper":[round(float(v),2) for v in fc['upper95']],"fc_lower":[round(float(v),2) for v in fc['lower95']],
         "sigma":fc['sigma'],"arima_order":{"p":p,"d":d,"q":q},"arima_explanation":orr['explanation'],
@@ -624,7 +644,7 @@ def analyze():
 
 @app.route('/api/health')
 def health():
-    return jsonify({"status":"running","message":"GHG Forecast API is online"})
+    return safe_json({"status":"running","message":"GHG Forecast API is online"})
 
 if __name__=='__main__':
     import os
