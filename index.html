@@ -909,15 +909,46 @@ function render(d){
 
   // ── Net chart ──
   const nh=d.history_table.map(r=>r.net??null);
-  if(nh.some(v=>v!==null)){
-    const netMeta=[{label:'淨排放',color:'#fb7185',datasetIdx:0},{label:'總排放',color:'rgba(0,229,192,.4)',datasetIdx:1}];
-    mk('cNet',{type:'line',data:{labels:allY,datasets:[
-      {label:'淨排放',data:[...nh,...Array(fLen).fill(null)],borderColor:'#fb7185',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
-      {label:'總排放',data:[...d.hist_total,...Array(fLen).fill(null)],borderColor:'rgba(0,229,192,.4)',borderWidth:1.5,borderDash:[4,3],pointRadius:0,tension:0.3,fill:false},
-    ]},options:{...lopts('kt CO₂e',1.6),plugins:{
-      ...lopts('kt CO₂e',1.6).plugins,
-      legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}},
-    }},plugins:[buildTooltipPlugin('cNet',netMeta)]});
+  // 預測段：淨排放 = ARIMA總排放預測 - 土地匯（固定最後一年）
+  const fcNet = (d.fc_net||[]);
+  const hasNet = nh.some(v=>v!==null);
+  const hasFcNet = fcNet.some(v=>v!==null);
+  if(hasNet || hasFcNet){
+    const datasets = [
+      // 歷史淨排放（實線）
+      {label:'淨排放（歷史）',
+       data:[...nh,...Array(fLen).fill(null)],
+       borderColor:'#fb7185',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
+      // 預測淨排放（虛線）
+      {label:'淨排放（預測，土地匯固定）',
+       data:[...Array(hLen).fill(null),...fcNet],
+       borderColor:'#fb7185',borderWidth:1.5,borderDash:[5,3],pointRadius:0,tension:0.3,fill:false},
+      // 歷史總排放（虛線淡色）
+      {label:'總排放（歷史）',
+       data:[...d.hist_total,...Array(fLen).fill(null)],
+       borderColor:'rgba(0,229,192,.4)',borderWidth:1.5,borderDash:[4,3],pointRadius:0,tension:0.3,fill:false},
+      // 預測總排放（虛線淡色）
+      {label:'總排放（預測）',
+       data:[...Array(hLen).fill(null),...d.fc_total],
+       borderColor:'rgba(0,229,192,.3)',borderWidth:1.5,borderDash:[3,4],pointRadius:0,tension:0.3,fill:false},
+    ];
+    // 加入土地匯線性推算線
+    const histLand = d.history_table.map(r=>r.land??null);
+    if(histLand.some(v=>v!==null)){
+      datasets.push({
+        label:'土地匯（歷史+線性推算）',
+        data:[...histLand,...(d.fc_land_series||[])],
+        borderColor:'rgba(132,204,22,.55)',borderWidth:1.5,borderDash:[2,3],pointRadius:0,tension:0.2,fill:false
+      });
+    }
+    // 若有土地匯固定值，在圖上加說明
+    // fc_land_series：每年線性推算的土地匯預測值
+    mk('cNet',{type:'line',data:{labels:allY,datasets},
+      options:{...lopts('kt CO₂e',1.8),plugins:{
+        ...lopts('kt CO₂e',1.8).plugins,
+        legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12,filter:(item)=>item.text.includes('歷史')||item.text.includes('預測')}},
+        subtitle:{display:d.fc_land_slope!=null,text:`▸ 土地匯線性推算：每年變化 ${d.fc_land_slope!=null?Number(d.fc_land_slope).toLocaleString('zh-TW',{maximumFractionDigits:1}):'-'} kt（近10年趨勢外推）`,color:'#4a6070',font:{size:10}},
+      }}});
   }
 
   // ── AIC chart ──

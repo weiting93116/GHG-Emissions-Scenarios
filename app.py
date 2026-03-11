@@ -496,10 +496,37 @@ def analyze():
             v=row.get(c,None); r[c]=round(float(v),2) if v is not None and pd.notna(v) else None
         hist_tbl.append(r)
 
-    fc_tbl=[{"year":yr,"total":round(fc['forecast'][i],2),
-              "upper95":round(fc['upper95'][i],2),"lower95":round(fc['lower95'][i],2),
-              **{c:None for c in ['energy','industry','agri','land','net','co2','ch4','n2o']}}
-             for i,yr in enumerate(fy)]
+    # 土地匯：線性推算（越來越多，即負值越來越大）
+    # 用歷史最後 5 年（或全部）做線性回歸，推算每年增加量
+    land_vals = dfc['land'].dropna().values if 'land' in dfc.columns else []
+    if len(land_vals) >= 2:
+        n_fit = min(len(land_vals), 10)  # 最多用近 10 年趨勢
+        x_fit = np.arange(n_fit)
+        y_fit = land_vals[-n_fit:].astype(float)
+        slope, intercept = np.polyfit(x_fit, y_fit, 1)
+        # 從最後一年往後線性延伸（slope 為負時代表吸收越來越多）
+        fc_land_series = [float(land_vals[-1]) + slope * (i + 1) for i in range(steps)]
+    elif len(land_vals) == 1:
+        slope = 0.0
+        fc_land_series = [float(land_vals[0])] * steps
+    else:
+        slope = None
+        fc_land_series = [None] * steps
+
+    fc_tbl=[]
+    for i,yr in enumerate(fy):
+        fc_total = round(fc['forecast'][i], 2)
+        fc_land_i = round(fc_land_series[i], 2) if fc_land_series[i] is not None else None
+        fc_net = round(fc_total + fc_land_i, 2) if fc_land_i is not None else None
+        fc_tbl.append({
+            "year": yr,
+            "total": fc_total,
+            "upper95": round(fc['upper95'][i], 2),
+            "lower95": round(fc['lower95'][i], 2),
+            "land": fc_land_i,
+            "net":  fc_net,
+            **{c: None for c in ['energy','industry','agri','co2','ch4','n2o']}
+        })
 
     return safe_json({"status":"ok","hist_years":hy,"hist_total":[round(float(v),2) for v in ts],
         "fc_years":fy,"fc_total":[round(float(v),2) for v in fc['forecast']],
@@ -508,6 +535,7 @@ def analyze():
         "sigma":fc['sigma'],"arima_order":{"p":p,"d":d,"q":q},
         "arima_explanation":orr['explanation'],"aic_table":orr['aic_table'],
         "adf_result":orr['adf'],"sample_size":orr['sample_size'],"warning":orr['warning'],
+        "fc_net":[r["net"] for r in fc_tbl],"fc_land_series":[r["land"] for r in fc_tbl],"fc_land_slope":round(float(slope),2) if slope is not None else None,
         "gas_results":gas_results,"history_table":hist_tbl,"forecast_table":fc_tbl,
         "diagnostics":compute_diagnostics(ts,(p,d,q)),
         "scenarios":scenarios})
