@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'index.html'        # 只有前端變動時才觸發
+      - 'index.html'
+      - 'main.js'           # JS 變動也觸發
   workflow_dispatch:        # 允許手動觸發
 
 permissions:
