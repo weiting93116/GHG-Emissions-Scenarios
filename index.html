@@ -371,6 +371,27 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     </div>
   </div>
 
+
+  <!-- 診斷圖區塊 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title"><span class="card-dot" style="background:var(--violet)"></span>差分分析（原序列 / 一階差分 / 二階差分 + ACF）</div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+      <canvas id="diffSeriesChart" height="120"></canvas>
+      <canvas id="diffAcfChart" height="120"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-grid-2" style="margin-bottom:14px">
+    <div class="card">
+      <div class="card-title"><span class="card-dot" style="background:var(--sky)"></span>ACF / PACF（自相關 / 偏自相關）</div>
+      <canvas id="acfChart" height="140"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-dot" style="background:var(--rose)"></span>殘差診斷（標準化殘差 + Correlogram）</div>
+      <canvas id="residChart" height="140"></canvas>
+    </div>
+  </div>
+
   <!-- ARIMA 參數說明 -->
   <div class="arima-panel">
     <h2>🔬 Auto-ARIMA 參數說明與選擇邏輯</h2>
@@ -534,7 +555,7 @@ function exportChartPng(chartId, filename){
   a.click();
 }
 async function doExportCharts(){
-  const ids=['mainChart','cCO2','cCH4','cN2O','cNet','aicChart'];
+  const ids=['mainChart','cCO2','cCH4','cN2O','cNet','aicChart','diffSeriesChart','diffAcfChart','acfChart','residChart'];
   const names=['總排放量預測','CO2預測','CH4預測','N2O預測','淨排放','AIC比較'];
   for(let i=0;i<ids.length;i++){
     if(charts[ids[i]]){
@@ -843,11 +864,19 @@ function render(d){
   },plugins:[buildTooltipPlugin('mainChart',mainMeta)]});
 
   // ── Pie ──
-  const gk=['co2','ch4','n2o'],gc=['rgba(96,165,250,.85)','rgba(52,211,153,.85)','rgba(244,114,182,.85)'],gl=['CO₂','CH₄','N₂O'];
-  const pv=gk.map(k=>{const g=d.gas_results?.[k];return g&&g.forecast.length?Math.max(0,g.forecast[g.forecast.length-1]):null});
+  // 圓餅圖：7種氣體（依台灣清冊報告完整涵蓋）
+  const GAS_KEYS =['co2','ch4','n2o','hfc','pfc','sf6','nf3'];
+  const GAS_LABELS=['CO₂','CH₄','N₂O','HFCs','PFCs','SF₆','NF₃'];
+  const GAS_COLORS=['rgba(96,165,250,.85)','rgba(52,211,153,.85)','rgba(244,114,182,.85)',
+                    'rgba(251,191,36,.85)','rgba(167,139,250,.85)','rgba(251,113,133,.85)','rgba(20,184,166,.85)'];
   const pfl={l:[],dt:[],c:[]};
-  if(pv.some(v=>v!==null)){gl.forEach((lb,i)=>{if(pv[i]!==null){pfl.l.push(lb);pfl.dt.push(pv[i]);pfl.c.push(gc[i])}})}
-  else{pfl.l=['總排放量'];pfl.dt=[end];pfl.c=['rgba(0,229,192,.8)']}
+  GAS_KEYS.forEach((k,i)=>{
+    const g=d.gas_results?.[k];
+    const v=g&&g.forecast&&g.forecast.length?Math.max(0,g.forecast[g.forecast.length-1]):null;
+    if(v!==null&&v>0){pfl.l.push(GAS_LABELS[i]);pfl.dt.push(v);pfl.c.push(GAS_COLORS[i]);}
+  });
+  // fallback：若無任何氣體資料，直接用總排放
+  if(pfl.dt.length===0){pfl.l=['總排放量'];pfl.dt=[end];pfl.c=['rgba(0,229,192,.8)'];}
   mk('pieChart',{type:'doughnut',data:{labels:pfl.l,datasets:[{data:pfl.dt,backgroundColor:pfl.c,borderColor:'#161b22',borderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:true,plugins:{
       legend:{display:true,position:'bottom',labels:{color:'#7a9ab0',font:{size:11},padding:10,boxWidth:12}},
@@ -915,6 +944,58 @@ function render(d){
   document.getElementById('summaryText').innerHTML=hl(exp.summary,'var(--teal)');
   if(d.warning){const wb=document.getElementById('warnBox');wb.textContent=d.warning;wb.style.display='block'}
   document.getElementById('aicTbody').innerHTML=(d.aic_table||[]).map((r,i)=>`<tr class="${r.p===o.p&&r.q===o.q?'best':''}"><td>${i+1}</td><td>${r.p}</td><td>${r.d}</td><td>${r.q}</td><td>${r.AIC}</td></tr>`).join('');
+
+
+  // ── 差分分析圖 ──
+  const diag = d.diagnostics || {};
+  const nlags = diag.nlags || 15;
+  const lagLabels = Array.from({length:nlags+1},(_,i)=>i);
+
+  if(diag.orig_series){
+    const nOrig = diag.orig_series.length;
+    const xOrig = Array.from({length:nOrig},(_,i)=>d.hist_years[0]+i);
+    const xD1   = Array.from({length:(diag.diff1_series||[]).length},(_,i)=>d.hist_years[0]+1+i);
+    const xD2   = Array.from({length:(diag.diff2_series||[]).length},(_,i)=>d.hist_years[0]+2+i);
+    mk('diffSeriesChart',{type:'line',data:{datasets:[
+      {label:'原序列',data:diag.orig_series.map((v,i)=>({x:xOrig[i],y:v})),borderColor:'var(--teal)',borderWidth:1.5,pointRadius:0,tension:0.2},
+      {label:'一階差分',data:(diag.diff1_series||[]).map((v,i)=>({x:xD1[i],y:v})),borderColor:'var(--sky)',borderWidth:1.5,pointRadius:0,tension:0.2},
+      {label:'二階差分',data:(diag.diff2_series||[]).map((v,i)=>({x:xD2[i],y:v})),borderColor:'var(--amber)',borderWidth:1.5,pointRadius:0,tension:0.2},
+    ]},options:{...lopts('kt',2.8),parsing:false,plugins:{...lopts('kt',2.8).plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}}}}});
+
+    const acfSets=[];
+    if(diag.orig_acf)  acfSets.push({label:'原序列 ACF', data:diag.orig_acf,  backgroundColor:'rgba(0,229,192,.55)',  borderColor:'transparent'});
+    if(diag.diff1_acf&&diag.diff1_acf.length) acfSets.push({label:'一階差分 ACF',data:diag.diff1_acf,backgroundColor:'rgba(56,189,248,.55)', borderColor:'transparent'});
+    if(diag.diff2_acf&&diag.diff2_acf.length) acfSets.push({label:'二階差分 ACF',data:diag.diff2_acf,backgroundColor:'rgba(245,158,11,.55)',  borderColor:'transparent'});
+    mk('diffAcfChart',{type:'bar',data:{labels:lagLabels,datasets:acfSets},
+      options:{...BO,aspectRatio:1.6,plugins:{...BO.plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:9},boxWidth:10}}},scales:{x:{...SC},y:{...SC,min:-1,max:1}}}});
+  }
+
+  // ── ACF / PACF ──
+  if(diag.orig_acf && diag.orig_pacf){
+    mk('acfChart',{type:'bar',data:{labels:lagLabels,datasets:[
+      {label:'ACF', data:diag.orig_acf,  backgroundColor:diag.orig_acf.map((_,i)=>i===0?'transparent':'rgba(56,189,248,.65)'),  borderColor:'transparent'},
+      {label:'PACF',data:diag.orig_pacf, backgroundColor:diag.orig_pacf.map((_,i)=>i===0?'transparent':'rgba(167,139,250,.65)'),borderColor:'transparent'},
+      {label:'+95%CI',data:diag.orig_conf,type:'line',borderColor:'rgba(255,255,255,.3)',borderDash:[4,3],pointRadius:0,fill:false},
+      {label:'-95%CI',data:(diag.orig_conf||[]).map(v=>-v),type:'line',borderColor:'rgba(255,255,255,.3)',borderDash:[4,3],pointRadius:0,fill:'-1',backgroundColor:'rgba(255,255,255,.04)'},
+    ]},options:{...BO,aspectRatio:1.8,plugins:{...BO.plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}}},scales:{x:{...SC},y:{...SC,min:-1,max:1,title:{display:true,text:'相關係數',color:'#4a6070',font:{size:9}}}}}});
+  }
+
+  // ── 殘差診斷 ──
+  if(diag.residuals){
+    const nR=diag.residuals.length;
+    mk('residChart',{type:'bar',data:{
+      labels:Array.from({length:nR},(_,i)=>i+1),
+      datasets:[
+        {label:'標準化殘差',data:diag.residuals,
+         backgroundColor:diag.residuals.map(v=>Math.abs(v)>2?'rgba(251,113,133,.8)':'rgba(56,189,248,.45)'),
+         borderColor:'transparent'},
+        {label:'+2σ',data:Array(nR).fill(2), type:'line',borderColor:'rgba(251,113,133,.5)',borderDash:[5,3],pointRadius:0,fill:false},
+        {label:'-2σ',data:Array(nR).fill(-2),type:'line',borderColor:'rgba(251,113,133,.5)',borderDash:[5,3],pointRadius:0,fill:'-1',backgroundColor:'rgba(251,113,133,.04)'},
+      ]
+    },options:{...BO,aspectRatio:1.8,
+      plugins:{...BO.plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}}},
+      scales:{x:{...SC,ticks:{maxTicksLimit:14}},y:{...SC,title:{display:true,text:'σ',color:'#4a6070',font:{size:9}}}}}});
+  }
 
   updateForecastTable(d, sc);
   document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});

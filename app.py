@@ -79,6 +79,10 @@ def detect_columns(df):
         "energy":   ["energy","能源"],
         "industry": ["industry","工業"],
         "agri":     ["agri","農業"],
+        "hfc":      ["hfcs_value","hfc","hfcs","氫氟碳化物"],
+        "pfc":      ["pfcs_value","pfc","pfcs","全氟碳化物"],
+        "sf6":      ["sf6_value","sf6","六氟化硫"],
+        "nf3":      ["nf3_value","nf3","三氟化氮"],
     }
     for key, cands in patterns.items():
         for oc, ol in cl.items():
@@ -323,6 +327,78 @@ def adef_scenarios(base_val, steps, params):
         result[key] = {"values": vals, **{k:v2 for k,v2 in sc.items()}}
     return result
 
+
+
+# ── 診斷數據計算 ─────────────────────────────────────────
+def _acf_values(series, nlags=20):
+    """手工計算 ACF，回傳 lag 0..nlags"""
+    s = np.array(series, dtype=float); n = len(s)
+    mu = np.mean(s); c0 = np.var(s)
+    if c0 == 0: return [1.0] + [0.0]*nlags
+    acf = [1.0]
+    for k in range(1, nlags+1):
+        acf.append(float(np.mean((s[:n-k]-mu)*(s[k:]-mu)) / c0))
+    return acf
+
+def _pacf_values(series, nlags=20):
+    """Yule-Walker 法計算 PACF"""
+    acf = _acf_values(series, nlags)
+    pacf = [1.0, acf[1]]
+    phi = {1: [acf[1]]}
+    for k in range(2, nlags+1):
+        prev = phi[k-1]
+        num = acf[k] - sum(prev[j]*acf[k-1-j] for j in range(k-1))
+        den = 1.0 - sum(prev[j]*acf[j+1] for j in range(k-1))
+        pk = num / den if abs(den) > 1e-10 else 0.0
+        new_phi = [prev[j] - pk*prev[k-2-j] for j in range(k-1)] + [pk]
+        phi[k] = new_phi
+        pacf.append(float(pk))
+    return pacf
+
+def _conf_band(n, nlags):
+    """95% 信心帶 ±1.96/√n"""
+    cb = 1.96 / np.sqrt(n)
+    return [round(cb, 4)] * (nlags+1)
+
+def compute_diagnostics(series, order, steps=None):
+    """計算完整診斷數據：殘差、ACF/PACF、差分序列"""
+    p, d, q = order
+    s = np.array(series[~np.isnan(series)], dtype=float)
+    n = len(s)
+    nlags = min(20, n//2 - 1)
+
+    # 殘差（用差分後的序列減 AR 擬合值）
+    sd = s.copy()
+    for _ in range(d): sd = np.diff(sd)
+    ar = np.zeros(p)
+    if p > 0 and len(sd) > p:
+        X = np.column_stack([sd[p-i-1:len(sd)-i-1] for i in range(p)])
+        try: ar,_,_,_ = np.linalg.lstsq(X, sd[p:], rcond=None)
+        except: pass
+    fitted = np.array([np.dot(ar, sd[i:i+p][::-1]) for i in range(p, len(sd))]) if p > 0 else np.full(len(sd), np.mean(sd))
+    resid = sd[p:] - fitted if p > 0 else sd - np.mean(sd)
+    sigma_r = np.std(resid) if np.std(resid) > 0 else 1.0
+    std_resid = resid / sigma_r
+
+    # 差分序列（用於差分分析圖）
+    diff1 = np.diff(s).tolist()
+    diff2 = np.diff(np.diff(s)).tolist() if len(s) > 2 else []
+
+    return {
+        "residuals": [round(float(v), 4) for v in std_resid],
+        "resid_acf": [round(v, 4) for v in _acf_values(std_resid, nlags)],
+        "resid_conf": _conf_band(len(std_resid), nlags),
+        "orig_acf":  [round(v, 4) for v in _acf_values(s, nlags)],
+        "orig_pacf": [round(v, 4) for v in _pacf_values(s, nlags)],
+        "orig_conf": _conf_band(n, nlags),
+        "diff1_series": [round(float(v), 2) for v in diff1],
+        "diff1_acf": [round(v, 4) for v in _acf_values(np.array(diff1), nlags)] if len(diff1) > nlags else [],
+        "diff2_series": [round(float(v), 2) for v in diff2],
+        "diff2_acf": [round(v, 4) for v in _acf_values(np.array(diff2), nlags)] if len(diff2) > nlags else [],
+        "orig_series": [round(float(v), 2) for v in s.tolist()],
+        "nlags": nlags,
+    }
+
 # ── 讀檔 ────────────────────────────────────────────────
 def read_file(f):
     raw=f.read(); fn=f.filename.lower()
@@ -399,9 +475,9 @@ def analyze():
     params=_get_adef_params(request)
     scenarios=adef_scenarios(ts[-1], steps, params)
 
-    # 氣體種類預測
+    # 氣體種類預測（7種：CO₂/CH₄/N₂O/HFCs/PFCs/SF₆/NF₃）
     gas_results={}
-    for col in ['co2','ch4','n2o']:
+    for col in ['co2','ch4','n2o','hfc','pfc','sf6','nf3']:
         if col in dfc.columns and not dfc[col].isna().all():
             s=dfc[col].dropna().values.astype(float)
             if len(s)>=5:
@@ -416,7 +492,7 @@ def analyze():
     hist_tbl=[]
     for _,row in dfc.iterrows():
         r={"year":int(row['year'])}
-        for c in ['energy','industry','agri','land','total','net','co2','ch4','n2o']:
+        for c in ['energy','industry','agri','land','total','net','co2','ch4','n2o','hfc','pfc','sf6','nf3']:
             v=row.get(c,None); r[c]=round(float(v),2) if v is not None and pd.notna(v) else None
         hist_tbl.append(r)
 
@@ -433,6 +509,7 @@ def analyze():
         "arima_explanation":orr['explanation'],"aic_table":orr['aic_table'],
         "adf_result":orr['adf'],"sample_size":orr['sample_size'],"warning":orr['warning'],
         "gas_results":gas_results,"history_table":hist_tbl,"forecast_table":fc_tbl,
+        "diagnostics":compute_diagnostics(ts,(p,d,q)),
         "scenarios":scenarios})
 
 @app.route('/api/scenarios', methods=['POST'])
