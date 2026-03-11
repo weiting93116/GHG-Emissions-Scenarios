@@ -864,18 +864,27 @@ function render(d){
   },plugins:[buildTooltipPlugin('mainChart',mainMeta)]});
 
   // ── Pie ──
-  // 圓餅圖：7種氣體（依台灣清冊報告完整涵蓋）
+  // 圓餅圖：7種氣體，優先用歷史最後一年實際值，避免預測值出現負數
   const GAS_KEYS =['co2','ch4','n2o','hfc','pfc','sf6','nf3'];
   const GAS_LABELS=['CO₂','CH₄','N₂O','HFCs','PFCs','SF₆','NF₃'];
   const GAS_COLORS=['rgba(96,165,250,.85)','rgba(52,211,153,.85)','rgba(244,114,182,.85)',
                     'rgba(251,191,36,.85)','rgba(167,139,250,.85)','rgba(251,113,133,.85)','rgba(20,184,166,.85)'];
   const pfl={l:[],dt:[],c:[]};
+  const lastHist = d.history_table[d.history_table.length-1] || {};
   GAS_KEYS.forEach((k,i)=>{
-    const g=d.gas_results?.[k];
-    const v=g&&g.forecast&&g.forecast.length?Math.max(0,g.forecast[g.forecast.length-1]):null;
+    // 優先取歷史最後一年實際值
+    let v = (lastHist[k] != null && lastHist[k] > 0) ? lastHist[k] : null;
+    // 若歷史沒有，才用預測首年（比2050更合理）
+    if(v===null){
+      const g=d.gas_results?.[k];
+      v = g&&g.forecast&&g.forecast.length>0 ? Math.max(0,g.forecast[0]) : null;
+    }
     if(v!==null&&v>0){pfl.l.push(GAS_LABELS[i]);pfl.dt.push(v);pfl.c.push(GAS_COLORS[i]);}
   });
-  // fallback：若無任何氣體資料，直接用總排放
+  // 圓餅圖標題改為顯示基準年份
+  const pieYear = lastHist.year || d.hist_years[d.hist_years.length-1];
+  document.querySelector('#pieChart').closest('.card').querySelector('.card-title').childNodes[1].textContent = ` ${pieYear} 年氣體組成比例`;
+  // fallback
   if(pfl.dt.length===0){pfl.l=['總排放量'];pfl.dt=[end];pfl.c=['rgba(0,229,192,.8)'];}
   mk('pieChart',{type:'doughnut',data:{labels:pfl.l,datasets:[{data:pfl.dt,backgroundColor:pfl.c,borderColor:'#161b22',borderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:true,plugins:{
@@ -956,11 +965,20 @@ function render(d){
     const xOrig = Array.from({length:nOrig},(_,i)=>d.hist_years[0]+i);
     const xD1   = Array.from({length:(diag.diff1_series||[]).length},(_,i)=>d.hist_years[0]+1+i);
     const xD2   = Array.from({length:(diag.diff2_series||[]).length},(_,i)=>d.hist_years[0]+2+i);
-    mk('diffSeriesChart',{type:'line',data:{datasets:[
-      {label:'原序列',data:diag.orig_series.map((v,i)=>({x:xOrig[i],y:v})),borderColor:'var(--teal)',borderWidth:1.5,pointRadius:0,tension:0.2},
-      {label:'一階差分',data:(diag.diff1_series||[]).map((v,i)=>({x:xD1[i],y:v})),borderColor:'var(--sky)',borderWidth:1.5,pointRadius:0,tension:0.2},
-      {label:'二階差分',data:(diag.diff2_series||[]).map((v,i)=>({x:xD2[i],y:v})),borderColor:'var(--amber)',borderWidth:1.5,pointRadius:0,tension:0.2},
-    ]},options:{...lopts('kt',2.8),parsing:false,plugins:{...lopts('kt',2.8).plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}}}}});
+    // 差分圖：用年份作為 labels，三條線長度不同，null補齊
+    const maxLen = Math.max(nOrig, (diag.diff1_series||[]).length, (diag.diff2_series||[]).length);
+    const diffLabels = Array.from({length:maxLen},(_,i)=>d.hist_years[0]+i);
+    const padNull = (arr, offset, len) => Array(offset).fill(null).concat(arr).concat(Array(Math.max(0,len-offset-arr.length)).fill(null));
+    mk('diffSeriesChart',{type:'line',data:{
+      labels: diffLabels,
+      datasets:[
+        {label:'原序列',   data:padNull(diag.orig_series,0,maxLen),              borderColor:'var(--teal)', borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
+        {label:'一階差分', data:padNull(diag.diff1_series||[],1,maxLen),         borderColor:'var(--sky)',  borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
+        {label:'二階差分', data:padNull(diag.diff2_series||[],2,maxLen),         borderColor:'var(--amber)',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
+      ]
+    },options:{...BO,aspectRatio:2.4,
+      plugins:{...BO.plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}}},
+      scales:{x:{...SC,ticks:{maxTicksLimit:10}},y:{...SC,title:{display:true,text:'kt CO₂e',color:'#4a6070',font:{size:9}}}}}});
 
     const acfSets=[];
     if(diag.orig_acf)  acfSets.push({label:'原序列 ACF', data:diag.orig_acf,  backgroundColor:'rgba(0,229,192,.55)',  borderColor:'transparent'});

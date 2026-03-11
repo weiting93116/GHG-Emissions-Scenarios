@@ -442,7 +442,7 @@ def _load_and_prep(req):
     df=df.dropna(subset=['year']).sort_values('year').reset_index(drop=True)
     df['year']=df['year'].astype(int)
     if 'total' not in df.columns:
-        gc=[c for c in ['co2','ch4','n2o','hfcs_value','pfcs_value','sf6_value','nf3_value'] if c in df.columns]
+        gc=[c for c in ['co2','ch4','n2o','hfc','pfc','sf6','nf3'] if c in df.columns]
         if gc: df['total']=df[gc].sum(axis=1,min_count=1)
     if 'total' not in df.columns: raise ValueError("找不到總排放量欄位")
     dfc=df.dropna(subset=['total']).copy()
