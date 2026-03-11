@@ -320,6 +320,7 @@ HTML = r"""<!DOCTYPE html>
 <title>溫室氣體排放預測系統 2050</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--ink:#0d1117;--ink2:#161b22;--ink3:#1c2733;--line:#21303f;--line2:#2d3f50;--muted:#4a6070;--dim:#7a9ab0;--mid:#a8c2d4;--text:#d4e8f5;--bright:#f0f8ff;--teal:#00e5c0;--teal2:#00b89c;--sky:#38bdf8;--amber:#f59e0b;--rose:#fb7185;--violet:#a78bfa;--lime:#84cc16;--r:8px}
@@ -438,6 +439,49 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 .divider td{border-top:2px solid var(--teal2)}
 .null-val{color:var(--muted)!important}.neg-val{color:var(--rose)!important}
 
+/* ── Interactive chart toolbar ── */
+.chart-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.chart-toolbar .card-title{margin-bottom:0}
+.chart-actions{display:flex;gap:6px;flex-shrink:0}
+.chart-btn{background:var(--ink3);border:1px solid var(--line2);border-radius:5px;color:var(--dim);padding:4px 9px;font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;letter-spacing:.04em;transition:all .15s}
+.chart-btn:hover{border-color:var(--teal);color:var(--teal)}
+
+/* ── Custom tooltip ── */
+#chartTooltip{position:fixed;z-index:9999;pointer-events:none;display:none;background:rgba(13,17,23,.97);border:1px solid var(--line2);border-radius:8px;padding:12px 16px;min-width:180px;max-width:280px;box-shadow:0 8px 32px rgba(0,0,0,.6)}
+#chartTooltip .tt-year{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--teal);margin-bottom:8px;letter-spacing:.08em}
+#chartTooltip .tt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 0;font-size:11px}
+#chartTooltip .tt-label{display:flex;align-items:center;gap:5px;color:var(--dim)}
+#chartTooltip .tt-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+#chartTooltip .tt-val{font-family:'JetBrains Mono',monospace;color:var(--bright);font-size:12px}
+#chartTooltip .tt-unit{font-size:9px;color:var(--muted);margin-left:2px}
+
+/* ── Lightbox ── */
+#chartLightbox{display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.85);align-items:center;justify-content:center;padding:24px}
+#chartLightbox.open{display:flex}
+#lbInner{background:var(--ink2);border:1px solid var(--line2);border-radius:12px;padding:24px;width:min(1200px,95vw);max-height:90vh;overflow:auto;position:relative}
+#lbClose{position:absolute;top:12px;right:16px;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1}
+#lbClose:hover{color:var(--bright)}
+
+/* ── Export panel ── */
+#exportPanel{background:var(--ink2);border:1px solid var(--teal2);border-radius:var(--r);padding:22px;margin-bottom:14px;display:none}
+#exportPanel h3{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--teal);letter-spacing:.12em;margin-bottom:16px}
+.export-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.export-col h4{font-size:11px;color:var(--dim);margin-bottom:10px;font-family:'JetBrains Mono',monospace;letter-spacing:.07em}
+.cb-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto}
+.cb-item{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:5px;cursor:pointer;transition:background .12s}
+.cb-item:hover{background:rgba(0,229,192,.06)}
+.cb-item input[type=checkbox]{accent-color:var(--teal);width:14px;height:14px;cursor:pointer;flex-shrink:0}
+.cb-item label{font-size:12px;color:var(--mid);cursor:pointer;flex:1}
+.cb-item input:checked ~ label{color:var(--teal)}
+.year-range{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.year-range label{font-size:11px;color:var(--dim)}
+.year-range input[type=number]{background:var(--ink3);border:1px solid var(--line2);border-radius:5px;color:var(--text);padding:5px 9px;width:80px;font-family:'JetBrains Mono',monospace;font-size:12px;outline:none}
+.year-range input:focus{border-color:var(--teal)}
+.export-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.cb-select-row{display:flex;gap:8px;margin-bottom:8px}
+.cb-select-row button{background:none;border:none;color:var(--teal2);font-size:10px;cursor:pointer;padding:0;font-family:'JetBrains Mono',monospace;text-decoration:underline}
+.preview-badge{display:inline-flex;align-items:center;gap:6px;background:var(--ink3);border:1px solid var(--line);border-radius:5px;padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim);margin-top:10px}
+
 /* Responsive */
 @media(max-width:960px){.chart-grid-main,.chart-grid-3{grid-template-columns:1fr}.chart-grid-2{grid-template-columns:1fr}.param-cards{grid-template-columns:1fr}}
 @media(max-width:600px){.stats-row{grid-template-columns:repeat(2,1fr)}header{flex-direction:column}}
@@ -458,6 +502,20 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     </div>
   </div>
 </header>
+
+<!-- Custom tooltip -->
+<div id="chartTooltip">
+  <div class="tt-year" id="ttYear">—</div>
+  <div id="ttRows"></div>
+</div>
+
+<!-- Lightbox -->
+<div id="chartLightbox">
+  <div id="lbInner">
+    <button id="lbClose" onclick="closeLightbox()">✕</button>
+    <div id="lbContent"></div>
+  </div>
+</div>
 
 <!-- 上傳 -->
 <div class="upload-zone" id="uploadZone">
@@ -535,7 +593,49 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 <!-- 結果區 -->
 <div id="results">
 
+  <!-- 匯出面板 -->
+  <div id="exportPanel">
+    <h3>📤 資料匯出設定</h3>
+    <div class="export-grid">
+      <div class="export-col">
+        <h4>▸ 選擇欄位</h4>
+        <div class="cb-select-row">
+          <button onclick="selAll(true)">全選</button>
+          <button onclick="selAll(false)">全不選</button>
+          <button onclick="selPreset('hist')">僅歷史</button>
+          <button onclick="selPreset('fc')">僅預測</button>
+        </div>
+        <div class="cb-list" id="cbList"></div>
+      </div>
+      <div class="export-col">
+        <h4>▸ 年份範圍</h4>
+        <div class="year-range">
+          <label>從</label>
+          <input type="number" id="expYearFrom" placeholder="1990">
+          <label>至</label>
+          <input type="number" id="expYearTo" placeholder="2050">
+        </div>
+        <h4 style="margin-top:12px">▸ 預覽</h4>
+        <div class="preview-badge" id="expPreview">—</div>
+        <div class="export-actions">
+          <button class="btn btn-primary" onclick="doExportCSV()">⬇ 下載 CSV</button>
+          <button class="btn btn-secondary" onclick="doExportClip()">📋 複製至剪貼板</button>
+          <button class="btn btn-secondary" onclick="doExportCharts()">🖼 下載所有圖表 PNG</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 統計摘要 -->
+  <!-- 匯出按鈕列 -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.08em">ANALYSIS RESULTS</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="toggleExport()" id="exportToggleBtn">📤 匯出資料</button>
+      <button class="btn btn-secondary" onclick="doExportCharts()">🖼 下載全部圖表</button>
+    </div>
+  </div>
+
   <div class="stats-row">
     <div class="stat"><div class="stat-label">資料範圍</div><div class="stat-val c-teal" id="s-range">—</div><div class="stat-sub">歷史年份</div></div>
     <div class="stat"><div class="stat-label">樣本數</div><div class="stat-val c-sky" id="s-n">—</div><div class="stat-sub">年度觀測值</div></div>
@@ -550,7 +650,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
   <!-- 主圖：ARIMA + 三情境 -->
   <div class="chart-grid-main">
     <div class="card">
-      <div class="card-title"><span class="card-dot" style="background:var(--teal)"></span>總排放量：ARIMA 統計預測 + AD-EF 三情境對照</div>
+      <div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:var(--teal)"></span>總排放量：ARIMA 統計預測 + AD-EF 三情境對照</div><div class="chart-actions"><button class="chart-btn" onclick="expandChart('mainChart','總排放量預測')">⛶ 放大</button><button class="chart-btn" onclick="exportChartPng('mainChart','總排放量預測')">↓ PNG</button></div></div>
       <canvas id="mainChart" height="155"></canvas>
       <div class="legend">
         <div class="leg-item"><div class="leg-line" style="background:var(--teal)"></div>歷史排放</div>
@@ -568,15 +668,15 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 
   <!-- 氣體種類圖 -->
   <div class="chart-grid-3">
-    <div class="card"><div class="card-title"><span class="card-dot" style="background:#60a5fa"></span>CO₂ 歷史 + 預測</div><canvas id="cCO2" height="130"></canvas></div>
-    <div class="card"><div class="card-title"><span class="card-dot" style="background:#34d399"></span>CH₄ 歷史 + 預測</div><canvas id="cCH4" height="130"></canvas></div>
-    <div class="card"><div class="card-title"><span class="card-dot" style="background:#f472b6"></span>N₂O 歷史 + 預測</div><canvas id="cN2O" height="130"></canvas></div>
+    <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#60a5fa"></span>CO₂ 歷史 + 預測</div><div class="chart-actions"><button class="chart-btn" onclick="expandChart('cCO2','CO₂ 預測')">⛶</button><button class="chart-btn" onclick="exportChartPng('cCO2','CO2預測')">↓</button></div></div><canvas id="cCO2" height="130"></canvas></div>
+    <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#34d399"></span>CH₄ 歷史 + 預測</div><div class="chart-actions"><button class="chart-btn" onclick="expandChart('cCH4','CH₄ 預測')">⛶</button><button class="chart-btn" onclick="exportChartPng('cCH4','CH4預測')">↓</button></div></div><canvas id="cCH4" height="130"></canvas></div>
+    <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#f472b6"></span>N₂O 歷史 + 預測</div><div class="chart-actions"><button class="chart-btn" onclick="expandChart('cN2O','N₂O 預測')">⛶</button><button class="chart-btn" onclick="exportChartPng('cN2O','N2O預測')">↓</button></div></div><canvas id="cN2O" height="130"></canvas></div>
   </div>
 
   <!-- 淨排放 + AIC -->
   <div class="chart-grid-2">
     <div class="card">
-      <div class="card-title"><span class="card-dot" style="background:var(--rose)"></span>淨排放量 vs 總排放量（含土地匯）</div>
+      <div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:var(--rose)"></span>淨排放量 vs 總排放量（含土地匯）</div><div class="chart-actions"><button class="chart-btn" onclick="expandChart('cNet','淨排放量')">⛶</button><button class="chart-btn" onclick="exportChartPng('cNet','淨排放')">↓</button></div></div>
       <canvas id="cNet" height="130"></canvas>
     </div>
     <div class="card">
@@ -642,7 +742,261 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 <script>
 let charts={}, uploadedFile=null, analysisData=null;
 
-// ── 滑桿綁定 ──
+// ════════════════════════════════════════
+// ── Custom Crosshair Tooltip ──────────
+// ════════════════════════════════════════
+const ttEl   = ()=>document.getElementById('chartTooltip');
+const ttYear = ()=>document.getElementById('ttYear');
+const ttRows = ()=>document.getElementById('ttRows');
+
+function buildTooltipPlugin(chartId, seriesMeta){
+  // seriesMeta: [{label, color, datasetIdx, unit}]
+  return {
+    id:'crosshairTooltip_'+chartId,
+    afterEvent(chart, args){
+      const {event}=args;
+      if(event.type==='mouseleave'){ttEl().style.display='none'; return;}
+      const pts=chart.getElementsAtEventForMode(event.native,'index',{intersect:false},false);
+      if(!pts.length){ttEl().style.display='none'; return;}
+      const idx=pts[0].index;
+      const label=chart.data.labels[idx];
+      ttYear().textContent=label+' 年';
+      let html='';
+      seriesMeta.forEach(m=>{
+        const ds=chart.data.datasets[m.datasetIdx];
+        if(!ds)return;
+        const v=ds.data[idx];
+        if(v==null||isNaN(v))return;
+        const col=m.color||ds.borderColor||'#aaa';
+        html+=`<div class="tt-row">
+          <span class="tt-label"><span class="tt-dot" style="background:${col}"></span>${m.label}</span>
+          <span class="tt-val">${Number(v).toLocaleString('zh-TW',{maximumFractionDigits:1})}<span class="tt-unit">${m.unit||'kt'}</span></span>
+        </div>`;
+      });
+      ttRows().innerHTML=html||'<div style="color:var(--muted);font-size:11px">無資料</div>';
+      const tt=ttEl();
+      tt.style.display='block';
+      // 位置：跟著滑鼠，避免超出視窗
+      const mx=event.native.clientX, my=event.native.clientY;
+      const tw=tt.offsetWidth||200, th=tt.offsetHeight||120;
+      const vw=window.innerWidth, vh=window.innerHeight;
+      tt.style.left=(mx+tw+16>vw ? mx-tw-10 : mx+14)+'px';
+      tt.style.top =(my+th+10>vh ? my-th-10 : my+4)+'px';
+    }
+  };
+}
+
+// 全域關掉 tooltip（滑鼠離開 canvas area）
+document.addEventListener('mouseleave',()=>{ttEl().style.display='none'},{capture:true});
+
+// ════════════════════════════════════════
+// ── Lightbox ──────────────────────────
+// ════════════════════════════════════════
+function expandChart(chartId, title){
+  const c=charts[chartId]; if(!c)return;
+  const lb=document.getElementById('chartLightbox');
+  const lbContent=document.getElementById('lbContent');
+  lbContent.innerHTML=`<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--teal);margin-bottom:12px;letter-spacing:.1em">${title.toUpperCase()}</div>
+    <canvas id="lbCanvas" style="width:100%;max-height:70vh"></canvas>`;
+  lb.classList.add('open');
+  // 複製圖表
+  setTimeout(()=>{
+    const orig=c.config;
+    const cfg=JSON.parse(JSON.stringify(orig));
+    // 調大字體
+    if(cfg.options?.scales){
+      ['x','y'].forEach(ax=>{if(cfg.options.scales[ax]?.ticks)cfg.options.scales[ax].ticks.font={size:13}});
+    }
+    cfg.options=cfg.options||{};
+    cfg.options.animation={duration:400};
+    cfg.options.aspectRatio=2.2;
+    if(charts['_lb'])charts['_lb'].destroy();
+    charts['_lb']=new Chart(document.getElementById('lbCanvas').getContext('2d'), cfg);
+  },50);
+}
+function closeLightbox(){
+  document.getElementById('chartLightbox').classList.remove('open');
+  if(charts['_lb']){charts['_lb'].destroy();delete charts['_lb'];}
+}
+document.getElementById('chartLightbox').addEventListener('click',function(e){
+  if(e.target===this)closeLightbox();
+});
+
+// ════════════════════════════════════════
+// ── Chart PNG export ──────────────────
+// ════════════════════════════════════════
+function exportChartPng(chartId, filename){
+  const c=charts[chartId]; if(!c)return;
+  // 白背景
+  const origCanvas=c.canvas;
+  const tmp=document.createElement('canvas');
+  tmp.width=origCanvas.width; tmp.height=origCanvas.height;
+  const ctx=tmp.getContext('2d');
+  ctx.fillStyle='#0d1117';
+  ctx.fillRect(0,0,tmp.width,tmp.height);
+  ctx.drawImage(origCanvas,0,0);
+  const a=document.createElement('a');
+  a.href=tmp.toDataURL('image/png');
+  a.download=(filename||chartId)+'.png';
+  a.click();
+}
+async function doExportCharts(){
+  const ids=['mainChart','cCO2','cCH4','cN2O','cNet','aicChart'];
+  const names=['總排放量預測','CO2預測','CH4預測','N2O預測','淨排放','AIC比較'];
+  for(let i=0;i<ids.length;i++){
+    if(charts[ids[i]]){
+      exportChartPng(ids[i],names[i]);
+      await new Promise(r=>setTimeout(r,120));
+    }
+  }
+}
+
+// ════════════════════════════════════════
+// ── Export Panel ──────────────────────
+// ════════════════════════════════════════
+const EXPORT_COLS=[
+  {id:'year',    label:'年份',          group:'base',   always:true},
+  {id:'total',   label:'總排放量 (kt)', group:'hist'},
+  {id:'co2',     label:'CO₂ (kt)',      group:'hist'},
+  {id:'ch4',     label:'CH₄ (kt)',      group:'hist'},
+  {id:'n2o',     label:'N₂O (kt)',      group:'hist'},
+  {id:'land',    label:'土地匯 (kt)',   group:'hist'},
+  {id:'net',     label:'淨排放量 (kt)', group:'hist'},
+  {id:'fc_mid',  label:'ARIMA 中位預測',group:'fc'},
+  {id:'fc_up',   label:'預測上界 95%', group:'fc'},
+  {id:'fc_lo',   label:'預測下界 95%', group:'fc'},
+  {id:'bau',     label:'BAU 情境',      group:'fc'},
+  {id:'policy',  label:'積極政策情境',  group:'fc'},
+  {id:'ndc',     label:'NDC 情境',      group:'fc'},
+];
+
+function toggleExport(){
+  const p=document.getElementById('exportPanel');
+  const btn=document.getElementById('exportToggleBtn');
+  if(p.style.display==='block'){
+    p.style.display='none'; btn.textContent='📤 匯出資料';
+  } else {
+    p.style.display='block'; btn.textContent='✕ 關閉匯出';
+    buildExportPanel();
+  }
+}
+
+function buildExportPanel(){
+  if(!analysisData)return;
+  const d=analysisData;
+  // 年份範圍
+  const allYears=[...d.hist_years,...d.fc_years];
+  document.getElementById('expYearFrom').value=allYears[0];
+  document.getElementById('expYearTo').value=allYears[allYears.length-1];
+  // checkbox list
+  const list=document.getElementById('cbList');
+  list.innerHTML=EXPORT_COLS.map(c=>`
+    <div class="cb-item">
+      <input type="checkbox" id="cb_${c.id}" ${c.always||c.group==='hist'||c.group==='fc'?'checked':''} ${c.always?'disabled':''}>
+      <label for="cb_${c.id}">
+        <span style="font-size:9px;padding:1px 5px;border-radius:3px;margin-right:5px;background:${c.group==='hist'?'rgba(0,229,192,.12)':c.group==='fc'?'rgba(56,189,248,.12)':'rgba(100,100,100,.15)'}; color:${c.group==='hist'?'var(--teal)':c.group==='fc'?'var(--sky)':'var(--muted)'}">
+          ${c.group==='hist'?'歷史':c.group==='fc'?'預測':'—'}
+        </span>
+        ${c.label}
+      </label>
+    </div>
+  `).join('');
+  updateExportPreview();
+  document.getElementById('expYearFrom').oninput=updateExportPreview;
+  document.getElementById('expYearTo').oninput=updateExportPreview;
+  list.querySelectorAll('input[type=checkbox]').forEach(el=>el.addEventListener('change',updateExportPreview));
+}
+
+function selAll(v){
+  document.querySelectorAll('#cbList input[type=checkbox]:not(:disabled)').forEach(el=>el.checked=v);
+  updateExportPreview();
+}
+function selPreset(preset){
+  EXPORT_COLS.forEach(c=>{
+    const el=document.getElementById('cb_'+c.id);
+    if(!el||el.disabled)return;
+    el.checked = (preset==='hist' ? c.group==='hist' : c.group==='fc') || c.always;
+  });
+  updateExportPreview();
+}
+
+function getExportRows(){
+  if(!analysisData)return[];
+  const d=analysisData;
+  const yFrom=parseInt(document.getElementById('expYearFrom').value)||0;
+  const yTo  =parseInt(document.getElementById('expYearTo').value)||9999;
+  const selCols=EXPORT_COLS.filter(c=>{const el=document.getElementById('cb_'+c.id);return el&&el.checked;});
+  const sc=d.scenarios||{};
+  // 合併所有年份
+  const rows=[];
+  // 歷史
+  d.history_table.forEach(r=>{
+    if(r.year<yFrom||r.year>yTo)return;
+    const row={year:r.year,total:r.total,co2:r.co2,ch4:r.ch4,n2o:r.n2o,land:r.land,net:r.net,
+               fc_mid:null,fc_up:null,fc_lo:null,bau:null,policy:null,ndc:null,_type:'歷史'};
+    rows.push(row);
+  });
+  // 預測
+  d.forecast_table.forEach((r,i)=>{
+    if(r.year<yFrom||r.year>yTo)return;
+    const row={year:r.year,total:null,co2:null,ch4:null,n2o:null,land:null,net:null,
+               fc_mid:r.total,fc_up:r.upper95,fc_lo:r.lower95,
+               bau:sc.bau?.values[i]??null,policy:sc.policy?.values[i]??null,ndc:sc.ndc?.values[i]??null,
+               _type:'預測'};
+    rows.push(row);
+  });
+  // 只保留選定欄位
+  return rows.map(r=>{
+    const out={};
+    selCols.forEach(c=>{out[c.label]=r[c.id]??'';});
+    out['類型']=r._type;
+    return out;
+  });
+}
+
+function updateExportPreview(){
+  const rows=getExportRows();
+  const el=document.getElementById('expPreview');
+  if(!rows.length){el.textContent='無符合條件的資料';return;}
+  const cols=Object.keys(rows[0]).length;
+  el.innerHTML=`<span style="color:var(--teal)">${rows.length}</span> 行 × <span style="color:var(--sky)">${cols}</span> 欄`;
+}
+
+function doExportCSV(){
+  const rows=getExportRows();
+  if(!rows.length){showErr('無可匯出資料');return;}
+  const yFrom=document.getElementById('expYearFrom').value;
+  const yTo=document.getElementById('expYearTo').value;
+  // Build CSV manually (UTF-8 BOM for Excel)
+  const headers=Object.keys(rows[0]);
+  const csvRows=[headers.join(',')];
+  rows.forEach(r=>csvRows.push(headers.map(h=>{
+    const v=r[h];
+    if(v===null||v===undefined||v==='')return '';
+    if(typeof v==='string')return `"${v}"`;
+    return v;
+  }).join(',')));
+  const bom='\uFEFF';
+  const blob=new Blob([bom+csvRows.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`GHG預測_${yFrom}-${yTo}.csv`; a.click();
+}
+
+function doExportClip(){
+  const rows=getExportRows();
+  if(!rows.length){showErr('無可匯出資料');return;}
+  const headers=Object.keys(rows[0]);
+  const tsv=[headers.join('\t'),...rows.map(r=>headers.map(h=>r[h]??'').join('\t'))].join('\n');
+  navigator.clipboard.writeText(tsv).then(()=>{
+    const btn=event.currentTarget;
+    const orig=btn.textContent; btn.textContent='✅ 已複製！';
+    setTimeout(()=>btn.textContent=orig,2000);
+  }).catch(()=>showErr('複製失敗，請手動複製'));
+}
+
+// ════════════════════════════════════════
+// ── Sliders ───────────────────────────
+// ════════════════════════════════════════
 const sliders=[
   ['slGdp','vGdp',v=>(v>=0?'+':'')+v+'%'],
   ['slEla','vEla',v=>parseFloat(v).toFixed(2)],
@@ -655,7 +1009,6 @@ sliders.forEach(([id,vid,fmt])=>{
   el.addEventListener('input',()=>{document.getElementById(vid).textContent=fmt(el.value)});
 });
 
-// ── 取得滑桿值 ──
 function getParams(){
   return{
     gdp:parseFloat(document.getElementById('slGdp').value)/100,
@@ -666,7 +1019,9 @@ function getParams(){
   };
 }
 
-// ── Upload ──
+// ════════════════════════════════════════
+// ── Upload ────────────────────────────
+// ════════════════════════════════════════
 const uploadZone=document.getElementById('uploadZone');
 const fileInput=document.getElementById('fileInput');
 uploadZone.addEventListener('dragover',e=>{e.preventDefault();uploadZone.classList.add('drag')});
@@ -702,7 +1057,9 @@ function buildSelects(cols,detected,preview){
   t.innerHTML=`<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`+(preview||[]).map(row=>`<tr>${cols.map(c=>`<td>${row[c]??''}</td>`).join('')}</tr>`).join('');
 }
 
-// ── Analyze ──
+// ════════════════════════════════════════
+// ── Analyze ───────────────────────────
+// ════════════════════════════════════════
 document.getElementById('analyzeBtn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
   hideErr();
@@ -713,7 +1070,6 @@ document.getElementById('analyzeBtn').addEventListener('click',async()=>{
   [['col_year','mapYear'],['col_total','mapTotal'],['col_co2','mapCO2'],['col_ch4','mapCH4'],
    ['col_n2o','mapN2O'],['col_land','mapLand'],['col_net','mapNet']
   ].forEach(([k,id])=>{const el=document.getElementById(id);if(el)fd.append(k,el.value||'')});
-  // 傳送 AD-EF 參數
   const p=getParams();
   Object.entries(p).forEach(([k,v])=>fd.append('adef_'+k,v));
   try{
@@ -728,7 +1084,6 @@ document.getElementById('analyzeBtn').addEventListener('click',async()=>{
   finally{document.getElementById('loadingInd').style.display='none';document.getElementById('analyzeBtn').disabled=false}
 });
 
-// ── 更新情境（不重跑ARIMA）──
 async function updateScenarios(){
   if(!uploadedFile||!analysisData)return;
   const fd=new FormData(); fd.append('file',uploadedFile);
@@ -738,18 +1093,19 @@ async function updateScenarios(){
     const r=await fetch('/api/scenarios',{method:'POST',body:fd});
     const d=await r.json();
     if(d.error){showErr(d.error);return}
-    // 更新主圖情境線
     updateMainChartScenarios(d.scenarios, analysisData.fc_years);
-    // 更新統計卡
     const sc=d.scenarios;
-    document.getElementById('s-bau').textContent=fmt(sc.bau.values[sc.bau.values.length-1]);
-    document.getElementById('s-ndc').textContent=fmt(sc.ndc.values[sc.ndc.values.length-1]);
-    // 更新表格
+    document.getElementById('s-bau').textContent=fmtN(sc.bau.values[sc.bau.values.length-1]);
+    document.getElementById('s-ndc').textContent=fmtN(sc.ndc.values[sc.ndc.values.length-1]);
+    analysisData.scenarios=sc;
     updateForecastTable(analysisData, d.scenarios);
+    if(document.getElementById('exportPanel').style.display==='block') buildExportPanel();
   }catch(e){showErr('情境更新失敗：'+e.message)}
 }
 
-// ── Render ──
+// ════════════════════════════════════════
+// ── Render ────────────────────────────
+// ════════════════════════════════════════
 function render(d){
   document.getElementById('results').style.display='block';
   const hLen=d.hist_years.length, fLen=d.fc_years.length;
@@ -761,64 +1117,95 @@ function render(d){
   // Stats
   document.getElementById('s-range').textContent=`${d.hist_years[0]}–${d.hist_years[hLen-1]}`;
   document.getElementById('s-n').textContent=d.sample_size;
-  document.getElementById('s-base').textContent=fmt(base);
-  document.getElementById('s-2050').textContent=fmt(end);
-  document.getElementById('s-bau').textContent=fmt(sc.bau.values[fLen-1]);
-  document.getElementById('s-ndc').textContent=fmt(sc.ndc.values[fLen-1]);
+  document.getElementById('s-base').textContent=fmtN(base);
+  document.getElementById('s-2050').textContent=fmtN(end);
+  document.getElementById('s-bau').textContent=fmtN(sc.bau.values[fLen-1]);
+  document.getElementById('s-ndc').textContent=fmtN(sc.ndc.values[fLen-1]);
   document.getElementById('s-order').textContent=`(${o.p},${o.d},${o.q})`;
-  document.getElementById('s-sigma').textContent=fmt(d.sigma);
+  document.getElementById('s-sigma').textContent=fmtN(d.sigma);
 
-  // Main chart：ARIMA區間 + 三情境線
+  // ── Main chart：ARIMA區間 + 三情境線 ──
   const histFull=[...d.hist_total,...Array(fLen).fill(null)];
+  const mainMeta=[
+    {label:'歷史排放',color:'#00e5c0',datasetIdx:2},
+    {label:'BAU',color:'#f59e0b',datasetIdx:3},
+    {label:'積極政策',color:'#38bdf8',datasetIdx:4},
+    {label:'NDC',color:'#00e5c0',datasetIdx:5},
+    {label:'95%上界',color:'rgba(56,189,248,.5)',datasetIdx:0},
+    {label:'95%下界',color:'rgba(56,189,248,.5)',datasetIdx:1},
+  ];
   mk('mainChart',{type:'line',data:{labels:allY,datasets:[
-    {data:[...Array(hLen).fill(null),...d.fc_upper],borderColor:'transparent',backgroundColor:'rgba(56,189,248,0.10)',fill:'+1',pointRadius:0},
-    {data:[...Array(hLen).fill(null),...d.fc_lower],borderColor:'transparent',fill:false,pointRadius:0},
+    {data:[...Array(hLen).fill(null),...d.fc_upper],borderColor:'transparent',backgroundColor:'rgba(56,189,248,0.10)',fill:'+1',pointRadius:0,label:'95%上界'},
+    {data:[...Array(hLen).fill(null),...d.fc_lower],borderColor:'transparent',fill:false,pointRadius:0,label:'95%下界'},
     {label:'歷史排放',data:histFull,borderColor:'#00e5c0',borderWidth:2.5,pointRadius:0,tension:0.3,fill:false},
     {label:'BAU',data:[...Array(hLen).fill(null),...sc.bau.values],borderColor:'#f59e0b',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.3,fill:false},
     {label:'積極政策',data:[...Array(hLen).fill(null),...sc.policy.values],borderColor:'#38bdf8',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.3,fill:false},
     {label:'NDC',data:[...Array(hLen).fill(null),...sc.ndc.values],borderColor:'#00e5c0',borderWidth:2.5,borderDash:[4,2],pointRadius:0,tension:0.3,fill:false},
-  ]},options:lopts('kt CO₂e',1.9)});
+  ]},options:{
+    ...lopts('kt CO₂e',1.9),
+    plugins:{
+      ...lopts('kt CO₂e',1.9).plugins,
+      legend:{display:false},
+    }
+  },plugins:[buildTooltipPlugin('mainChart',mainMeta)]});
 
-  // Pie
+  // ── Pie ──
   const gk=['co2','ch4','n2o'],gc=['rgba(96,165,250,.85)','rgba(52,211,153,.85)','rgba(244,114,182,.85)'],gl=['CO₂','CH₄','N₂O'];
   const pv=gk.map(k=>{const g=d.gas_results?.[k];return g&&g.forecast.length?Math.max(0,g.forecast[g.forecast.length-1]):null});
   const pfl={l:[],dt:[],c:[]};
   if(pv.some(v=>v!==null)){gl.forEach((lb,i)=>{if(pv[i]!==null){pfl.l.push(lb);pfl.dt.push(pv[i]);pfl.c.push(gc[i])}})}
   else{pfl.l=['總排放量'];pfl.dt=[end];pfl.c=['rgba(0,229,192,.8)']}
   mk('pieChart',{type:'doughnut',data:{labels:pfl.l,datasets:[{data:pfl.dt,backgroundColor:pfl.c,borderColor:'#161b22',borderWidth:2}]},
-    options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:true,position:'bottom',labels:{color:'#7a9ab0',font:{size:11},padding:10,boxWidth:12}},tooltip:{backgroundColor:'#1c2733',titleColor:'#d4e8f5',bodyColor:'#7a9ab0'}}}});
+    options:{responsive:true,maintainAspectRatio:true,plugins:{
+      legend:{display:true,position:'bottom',labels:{color:'#7a9ab0',font:{size:11},padding:10,boxWidth:12}},
+      tooltip:{backgroundColor:'#1c2733',titleColor:'#d4e8f5',bodyColor:'#7a9ab0',
+        callbacks:{label:(ctx)=>`${ctx.label}: ${Number(ctx.parsed).toLocaleString('zh-TW',{maximumFractionDigits:1})} kt (${(ctx.parsed/pfl.dt.reduce((a,b)=>a+b,0)*100).toFixed(1)}%)`}}
+    }}});
 
-  // Gas charts
-  [['cCO2','co2','#60a5fa'],['cCH4','ch4','#34d399'],['cN2O','n2o','#f472b6']].forEach(([id,key,col])=>{
+  // ── Gas charts ──
+  [['cCO2','co2','#60a5fa','CO₂'],['cCH4','ch4','#34d399','CH₄'],['cN2O','n2o','#f472b6','N₂O']].forEach(([id,key,col,gasLabel])=>{
     const g=d.gas_results?.[key];
     if(!g){mk(id,{type:'line',data:{labels:[],datasets:[]},options:lopts('kt',1.6)});return}
+    const gasMeta=[{label:`${gasLabel} 歷史`,color:col,datasetIdx:2},{label:`${gasLabel} 預測`,color:col,datasetIdx:3}];
     mk(id,{type:'line',data:{labels:allY,datasets:[
-      {data:[...Array(hLen).fill(null),...g.upper95],borderColor:'transparent',backgroundColor:col+'22',fill:'+1',pointRadius:0},
-      {data:[...Array(hLen).fill(null),...g.lower95],borderColor:'transparent',fill:false,pointRadius:0},
-      {data:[...g.history,...Array(fLen).fill(null)],borderColor:col,borderWidth:2,pointRadius:0,tension:0.3,fill:false},
-      {data:[...Array(hLen).fill(null),...g.forecast],borderColor:col,borderWidth:1.5,borderDash:[5,3],pointRadius:0,tension:0.3,fill:false},
-    ]},options:lopts('kt CO₂e',1.6)});
+      {data:[...Array(hLen).fill(null),...g.upper95],borderColor:'transparent',backgroundColor:col+'22',fill:'+1',pointRadius:0,label:'上界'},
+      {data:[...Array(hLen).fill(null),...g.lower95],borderColor:'transparent',fill:false,pointRadius:0,label:'下界'},
+      {data:[...g.history,...Array(fLen).fill(null)],borderColor:col,borderWidth:2,pointRadius:0,tension:0.3,fill:false,label:`${gasLabel} 歷史`},
+      {data:[...Array(hLen).fill(null),...g.forecast],borderColor:col,borderWidth:1.5,borderDash:[5,3],pointRadius:0,tension:0.3,fill:false,label:`${gasLabel} 預測`},
+    ]},options:{...lopts('kt CO₂e',1.6),plugins:{...lopts('kt CO₂e',1.6).plugins,legend:{display:false}}},
+    plugins:[buildTooltipPlugin(id,gasMeta)]});
   });
 
-  // Net chart
+  // ── Net chart ──
   const nh=d.history_table.map(r=>r.net??null);
   if(nh.some(v=>v!==null)){
+    const netMeta=[{label:'淨排放',color:'#fb7185',datasetIdx:0},{label:'總排放',color:'rgba(0,229,192,.4)',datasetIdx:1}];
     mk('cNet',{type:'line',data:{labels:allY,datasets:[
       {label:'淨排放',data:[...nh,...Array(fLen).fill(null)],borderColor:'#fb7185',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
       {label:'總排放',data:[...d.hist_total,...Array(fLen).fill(null)],borderColor:'rgba(0,229,192,.4)',borderWidth:1.5,borderDash:[4,3],pointRadius:0,tension:0.3,fill:false},
-    ]},options:{...lopts('kt CO₂e',1.6),plugins:{legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}},tooltip:{backgroundColor:'#1c2733',titleColor:'#d4e8f5',bodyColor:'#7a9ab0'}}}});
+    ]},options:{...lopts('kt CO₂e',1.6),plugins:{
+      ...lopts('kt CO₂e',1.6).plugins,
+      legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}},
+    }},plugins:[buildTooltipPlugin('cNet',netMeta)]});
   }
 
-  // AIC chart
+  // ── AIC chart ──
   const aicD=d.aic_table||[];
-  mk('aicChart',{type:'bar',data:{labels:aicD.map(r=>`(${r.p},${r.d},${r.q})`),datasets:[{data:aicD.map(r=>r.AIC),backgroundColor:aicD.map(r=>r.p===o.p&&r.q===o.q?'rgba(0,229,192,.75)':'rgba(56,189,248,.28)'),borderRadius:3}]},
-    options:{responsive:true,maintainAspectRatio:true,aspectRatio:1.8,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1c2733',bodyColor:'#94a3b8'}},scales:{x:{ticks:{color:'#4a6070',font:{size:9},maxRotation:45},grid:{color:'rgba(255,255,255,.03)'}},y:{ticks:{color:'#4a6070',font:{size:9}},grid:{color:'rgba(255,255,255,.03)'}}}}});
+  mk('aicChart',{type:'bar',data:{labels:aicD.map(r=>`(${r.p},${r.d},${r.q})`),datasets:[{
+    data:aicD.map(r=>r.AIC),
+    backgroundColor:aicD.map(r=>r.p===o.p&&r.q===o.q?'rgba(0,229,192,.75)':'rgba(56,189,248,.28)'),
+    borderRadius:3,label:'BIC'}]},
+    options:{responsive:true,maintainAspectRatio:true,aspectRatio:1.8,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#1c2733',bodyColor:'#94a3b8',
+        callbacks:{label:(ctx)=>`BIC: ${ctx.parsed.y.toLocaleString('zh-TW',{maximumFractionDigits:2})}`}}},
+      scales:{x:{ticks:{color:'#4a6070',font:{size:9},maxRotation:45},grid:{color:'rgba(255,255,255,.03)'}},
+              y:{ticks:{color:'#4a6070',font:{size:9}},grid:{color:'rgba(255,255,255,.03)'}}}
+    }});
 
   // ARIMA 說明
   ['p','d','q'].forEach(k=>{document.getElementById('exp-'+k).textContent=o[k];document.getElementById('exp-'+k+'2').textContent=o[k]});
   document.getElementById('exp-aic').textContent=d.aic_table?.[0]?.AIC??'—';
   document.getElementById('adfText').textContent=exp.adf_reason||'—';
-  // Engine badge
   const eng=d.engine||'fallback';
   const badge=document.getElementById('engine-badge');
   if(eng==='pmdarima'){
@@ -836,7 +1223,6 @@ function render(d){
   if(d.warning){const wb=document.getElementById('warnBox');wb.textContent=d.warning;wb.style.display='block'}
   document.getElementById('aicTbody').innerHTML=(d.aic_table||[]).map((r,i)=>`<tr class="${r.p===o.p&&r.q===o.q?'best':''}"><td>${i+1}</td><td>${r.p}</td><td>${r.d}</td><td>${r.q}</td><td>${r.AIC}</td></tr>`).join('');
 
-  // Forecast table
   updateForecastTable(d, sc);
   document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -846,12 +1232,12 @@ function updateForecastTable(d, sc){
   let rows='', first=true;
   d.history_table.forEach(r=>{
     rows+=`<tr class="hist-row"><td>${r.year}</td>
-      <td>${r.co2!=null?fmt(r.co2):'<span class="null-val">—</span>'}</td>
-      <td>${r.ch4!=null?fmt(r.ch4):'<span class="null-val">—</span>'}</td>
-      <td>${r.n2o!=null?fmt(r.n2o):'<span class="null-val">—</span>'}</td>
-      <td class="${r.land<0?'neg-val':''}">${r.land!=null?fmt(r.land):'<span class="null-val">—</span>'}</td>
-      <td>${r.total!=null?fmt(r.total):'<span class="null-val">—</span>'}</td>
-      <td class="${r.net<0?'neg-val':''}">${r.net!=null?fmt(r.net):'<span class="null-val">—</span>'}</td>
+      <td>${r.co2!=null?fmtN(r.co2):'<span class="null-val">—</span>'}</td>
+      <td>${r.ch4!=null?fmtN(r.ch4):'<span class="null-val">—</span>'}</td>
+      <td>${r.n2o!=null?fmtN(r.n2o):'<span class="null-val">—</span>'}</td>
+      <td class="${r.land<0?'neg-val':''}">${r.land!=null?fmtN(r.land):'<span class="null-val">—</span>'}</td>
+      <td>${r.total!=null?fmtN(r.total):'<span class="null-val">—</span>'}</td>
+      <td class="${r.net<0?'neg-val':''}">${r.net!=null?fmtN(r.net):'<span class="null-val">—</span>'}</td>
       <td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td>
       <td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td>
       <td style="color:var(--muted);font-size:10px">歷史</td></tr>`;
@@ -861,10 +1247,10 @@ function updateForecastTable(d, sc){
     rows+=`<tr class="${cls}"><td>${r.year}</td>
       <td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td>
       <td class="null-val">—</td><td class="null-val">—</td>
-      <td>${fmt(r.total)}</td><td>${fmt(r.upper95)}</td><td>${fmt(r.lower95)}</td>
-      <td style="color:#f59e0b">${sc?fmt(sc.bau.values[i]):'—'}</td>
-      <td style="color:#38bdf8">${sc?fmt(sc.policy.values[i]):'—'}</td>
-      <td style="color:#00e5c0">${sc?fmt(sc.ndc.values[i]):'—'}</td>
+      <td>${fmtN(r.total)}</td><td>${fmtN(r.upper95)}</td><td>${fmtN(r.lower95)}</td>
+      <td style="color:#f59e0b">${sc?fmtN(sc.bau.values[i]):'—'}</td>
+      <td style="color:#38bdf8">${sc?fmtN(sc.policy.values[i]):'—'}</td>
+      <td style="color:#00e5c0">${sc?fmtN(sc.ndc.values[i]):'—'}</td>
       <td style="color:var(--sky);font-size:10px">預測</td></tr>`;
   });
   document.getElementById('forecastTbody').innerHTML=rows;
@@ -880,11 +1266,12 @@ function updateMainChartScenarios(sc, fcYears){
 }
 
 // ── Chart helpers ──
-const BO={responsive:true,maintainAspectRatio:true,animation:{duration:600},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1c2733',titleColor:'#d4e8f5',bodyColor:'#7a9ab0',borderColor:'#21303f',borderWidth:1}}};
+const BO={responsive:true,maintainAspectRatio:true,animation:{duration:600},plugins:{legend:{display:false},tooltip:{enabled:false}}};
 const SC={grid:{color:'rgba(255,255,255,.032)'},ticks:{color:'#4a6070',font:{size:10},maxTicksLimit:8}};
 function lopts(yL,ar=2){return{...BO,aspectRatio:ar,scales:{x:SC,y:{...SC,title:{display:true,text:yL,color:'#4a6070',font:{size:10}}}}}}
 function mk(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart(document.getElementById(id).getContext('2d'),cfg)}
-function fmt(v){if(v==null||isNaN(v))return'<span class="null-val">—</span>';return Number(v).toLocaleString('zh-TW',{maximumFractionDigits:1})}
+function fmtN(v){if(v==null||isNaN(v))return null;}
+function fmt(v){if(v==null||v===''||isNaN(Number(v)))return'<span class="null-val">—</span>';return Number(v).toLocaleString('zh-TW',{maximumFractionDigits:1})}
 function showErr(m){const e=document.getElementById('errorBox');e.textContent='❌ '+m;e.style.display='block'}
 function hideErr(){document.getElementById('errorBox').style.display='none'}
 </script>
