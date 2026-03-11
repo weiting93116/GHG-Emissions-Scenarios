@@ -302,16 +302,24 @@ header {
         <select id="mapIndustry"></select>
       </div>
       <div class="map-group">
-        <label>🌾 農業/廢棄物 (kt CO₂e)</label>
-        <select id="mapAgri"></select>
+        <label>🌿 CO₂ 排放量欄位</label>
+        <select id="mapCO2"></select>
       </div>
       <div class="map-group">
-        <label>🌲 土地匯 / LULUCF (kt CO₂e)</label>
+        <label>🐄 CH₄ 排放量欄位</label>
+        <select id="mapCH4"></select>
+      </div>
+      <div class="map-group">
+        <label>🌾 N₂O 排放量欄位</label>
+        <select id="mapN2O"></select>
+      </div>
+      <div class="map-group">
+        <label>🌲 土地匯 / CO₂ 吸收量</label>
         <select id="mapLand"></select>
       </div>
       <div class="map-group">
-        <label>📊 總排放量 (kt CO₂e)</label>
-        <select id="mapTotal"></select>
+        <label>📊 淨排放量（含土地匯）</label>
+        <select id="mapNet"></select>
       </div>
     </div>
     <div class="map-preview">
@@ -366,12 +374,12 @@ header {
 
   <!-- Sector Charts -->
   <div class="chart-grid-3">
-    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--sky)"></span>能源部門</div><canvas id="cEnergy" height="130"></canvas></div>
-    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--amber)"></span>工業製程</div><canvas id="cIndustry" height="130"></canvas></div>
-    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--lime)"></span>農業 / 廢棄物</div><canvas id="cAgri" height="130"></canvas></div>
+    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--sky)"></span>CO₂ 排放趨勢</div><canvas id="cEnergy" height="130"></canvas></div>
+    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--lime)"></span>CH₄ 排放趨勢</div><canvas id="cIndustry" height="130"></canvas></div>
+    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--n2o, #f472b6)"></span>N₂O 排放趨勢</div><canvas id="cAgri" height="130"></canvas></div>
   </div>
   <div class="chart-grid-2">
-    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--rose)"></span>土地匯 (LULUCF)</div><canvas id="cLand" height="130"></canvas></div>
+    <div class="card"><div class="card-title"><span class="card-dot" style="background:var(--rose)"></span>淨排放量（含土地匯）趨勢</div><canvas id="cLand" height="130"></canvas></div>
     <div class="card">
       <div class="card-title"><span class="card-dot" style="background:var(--violet)"></span>AIC 比較（各 ARIMA 階數）</div>
       <canvas id="aicChart" height="130"></canvas>
@@ -441,11 +449,12 @@ header {
         <thead>
           <tr>
             <th>年份</th>
-            <th>能源部門 (kt)</th>
-            <th>工業製程 (kt)</th>
-            <th>農業/廢棄物 (kt)</th>
+            <th>CO₂ (kt)</th>
+            <th>CH₄ (kt)</th>
+            <th>N₂O (kt)</th>
             <th>土地匯 (kt)</th>
             <th>總排放量 (kt)</th>
+            <th>淨排放量 (kt)</th>
             <th>預測上界 (95%)</th>
             <th>預測下界 (95%)</th>
             <th>類型</th>
@@ -591,10 +600,13 @@ function buildColumnSelects(cols, detected, preview) {
   const opts = ['（不使用）', ...cols];
   const maps = [
     ['mapYear', 'year'], ['mapEnergy', 'energy'], ['mapIndustry', 'industry'],
-    ['mapAgri', 'agri'], ['mapLand', 'land'], ['mapTotal', 'total']
+    ['mapAgri', 'agri'], ['mapTotal', 'total'],
+    ['mapCO2', 'co2'], ['mapCH4', 'ch4'], ['mapN2O', 'n2o'],
+    ['mapLand', 'land'], ['mapNet', 'net'],
   ];
   maps.forEach(([id, key]) => {
     const sel = document.getElementById(id);
+    if (!sel) return;
     sel.innerHTML = opts.map(c => `<option value="${c === '（不使用）' ? '' : c}">${c}</option>`).join('');
     if (detected[key]) sel.value = detected[key];
   });
@@ -618,11 +630,15 @@ async function runAnalysis() {
   const fd = new FormData();
   fd.append('file', uploadedFile);
   fd.append('col_year',     document.getElementById('mapYear').value);
-  fd.append('col_energy',   document.getElementById('mapEnergy').value);
-  fd.append('col_industry', document.getElementById('mapIndustry').value);
-  fd.append('col_agri',     document.getElementById('mapAgri').value);
-  fd.append('col_land',     document.getElementById('mapLand').value);
-  fd.append('col_total',    document.getElementById('mapTotal').value);
+  fd.append('col_energy',   document.getElementById('mapEnergy')?.value || '');
+  fd.append('col_industry', document.getElementById('mapIndustry')?.value || '');
+  fd.append('col_agri',     document.getElementById('mapAgri')?.value || '');
+  fd.append('col_land',     document.getElementById('mapLand')?.value || '');
+  fd.append('col_total',    document.getElementById('mapTotal')?.value || '');
+  fd.append('col_net',      document.getElementById('mapNet')?.value || '');
+  fd.append('col_co2',      document.getElementById('mapCO2')?.value || '');
+  fd.append('col_ch4',      document.getElementById('mapCH4')?.value || '');
+  fd.append('col_n2o',      document.getElementById('mapN2O')?.value || '');
 
   try {
     const res = await fetch(`${API}/api/analyze`, { method: 'POST', body: fd });
@@ -681,17 +697,25 @@ function renderResults(d) {
     options: lineOpts('kt CO₂e', 1.9)
   });
 
-  // ── Pie Chart ──
-  const secColors = ['rgba(56,189,248,0.85)','rgba(245,158,11,0.85)','rgba(132,204,22,0.85)','rgba(251,113,133,0.85)'];
-  const secLabels = ['能源部門','工業製程','農業/廢棄物','土地匯'];
-  const secIds = ['energy','industry','agri','land'];
-  const pieVals = secIds.map(k => {
-    const sr = d.sector_results[k];
-    if (!sr || !sr.forecast.length) return null;
-    return Math.max(0, sr.forecast[sr.forecast.length-1]);
+  // ── Pie Chart —— 用氣體種類（CO2/CH4/N2O）
+  const gasColors = ['rgba(96,165,250,0.85)','rgba(52,211,153,0.85)','rgba(244,114,182,0.85)'];
+  const gasLabels = ['CO₂','CH₄','N₂O'];
+  const gasKeys   = ['co2','ch4','n2o'];
+  const pieVals = gasKeys.map(k => {
+    const gr = d.gas_results?.[k];
+    if (!gr || !gr.forecast.length) return null;
+    return Math.max(0, gr.forecast[gr.forecast.length - 1]);
   });
+  // fallback：若無氣體分類，用總量顯示單一圓餅
+  const hasPie = pieVals.some(v => v !== null);
   const pieFiltered = { labels:[], data:[], colors:[] };
-  secLabels.forEach((lb,i) => { if(pieVals[i]!==null){ pieFiltered.labels.push(lb); pieFiltered.data.push(pieVals[i]); pieFiltered.colors.push(secColors[i]); }});
+  if (hasPie) {
+    gasLabels.forEach((lb,i) => { if(pieVals[i]!==null){ pieFiltered.labels.push(lb); pieFiltered.data.push(pieVals[i]); pieFiltered.colors.push(gasColors[i]); }});
+  } else {
+    pieFiltered.labels = ['總排放量'];
+    pieFiltered.data = [end];
+    pieFiltered.colors = ['rgba(0,229,192,0.8)'];
+  }
 
   mkChart('pieChart', {
     type:'doughnut',
@@ -699,20 +723,19 @@ function renderResults(d) {
     options:{ responsive:true, maintainAspectRatio:true, plugins:{ legend:{ display:true, position:'bottom', labels:{ color:'#7a9ab0', font:{size:11}, padding:10, boxWidth:12 } }, tooltip:{ backgroundColor:'#1c2733', titleColor:'#d4e8f5', bodyColor:'#7a9ab0' } } }
   });
 
-  // ── Sector Charts ──
-  const secCharts = [
-    { id:'cEnergy', key:'energy', col:'#38bdf8' },
-    { id:'cIndustry', key:'industry', col:'#f59e0b' },
-    { id:'cAgri', key:'agri', col:'#84cc16' },
-    { id:'cLand', key:'land', col:'#fb7185' },
+  // ── 氣體種類圖（CO₂ / CH₄ / N₂O）──
+  const gasCharts = [
+    { id:'cEnergy', key:'co2', col:'#60a5fa', label:'CO₂' },
+    { id:'cIndustry', key:'ch4', col:'#34d399', label:'CH₄' },
+    { id:'cAgri', key:'n2o', col:'#f472b6', label:'N₂O' },
   ];
-  secCharts.forEach(({id, key, col}) => {
-    const sr = d.sector_results[key];
-    if (!sr) return;
-    const hf = [...sr.history, ...Array(fcLen).fill(null)];
-    const pf = [...Array(histLen).fill(null), ...sr.forecast];
-    const uf = [...Array(histLen).fill(null), ...sr.upper95];
-    const lf = [...Array(histLen).fill(null), ...sr.lower95];
+  gasCharts.forEach(({id, key, col}) => {
+    const gr = d.gas_results?.[key];
+    if (!gr) { mkChart(id, { type:'line', data:{ labels:[], datasets:[] }, options: lineOpts('kt',1.6) }); return; }
+    const hf = [...gr.history, ...Array(fcLen).fill(null)];
+    const pf = [...Array(histLen).fill(null), ...gr.forecast];
+    const uf = [...Array(histLen).fill(null), ...gr.upper95];
+    const lf = [...Array(histLen).fill(null), ...gr.lower95];
     mkChart(id, {
       type:'line',
       data:{ labels:allYears, datasets:[
@@ -721,11 +744,28 @@ function renderResults(d) {
         { data:hf, borderColor:col, borderWidth:2, pointRadius:0, tension:0.3 },
         { data:pf, borderColor:col, borderWidth:1.5, borderDash:[5,3], pointRadius:0, tension:0.3 },
       ]},
-      options: lineOpts('kt', 1.6)
+      options: lineOpts('kt CO₂e', 1.6)
     });
   });
 
-  // ── AIC Chart ──
+  // ── 淨排放量圖（若有 net 欄） ──
+  const netHist = d.history_table.map(r => r.net ?? null);
+  const hasNet = netHist.some(v => v !== null);
+  if (hasNet) {
+    const netFull = [...netHist, ...Array(fcLen).fill(null)];
+    mkChart('cLand', {
+      type:'line',
+      data:{ labels:allYears, datasets:[
+        { label:'淨排放（含土地匯）', data:netFull, borderColor:'#fb7185', borderWidth:2, pointRadius:0, tension:0.3, fill:false },
+        { label:'總排放', data:[...d.hist_total, ...Array(fcLen).fill(null)], borderColor:'rgba(0,229,192,0.4)', borderWidth:1.5, borderDash:[4,3], pointRadius:0, tension:0.3, fill:false },
+      ]},
+      options:{ ...lineOpts('kt CO₂e', 1.6), plugins:{ legend:{ display:true, labels:{ color:'#4a6070', font:{size:10}, boxWidth:12 } }, tooltip: CHART_DEFAULTS_TOOLTIP } }
+    });
+  } else {
+    mkChart('cLand', { type:'line', data:{ labels:[], datasets:[] }, options: lineOpts('kt',1.6) });
+  }
+
+  const CHART_DEFAULTS_TOOLTIP = { backgroundColor:'#1c2733', titleColor:'#d4e8f5', bodyColor:'#7a9ab0' };
   const aicData = d.aic_table || [];
   mkChart('aicChart', {
     type:'bar',
@@ -775,25 +815,27 @@ function renderResults(d) {
   // History rows
   d.history_table.forEach(r => {
     rows += `<tr class="hist-row"><td>${r.year}</td>
-      <td>${r.energy!=null?fmt(r.energy):'<span class="null-val">—</span>'}</td>
-      <td>${r.industry!=null?fmt(r.industry):'<span class="null-val">—</span>'}</td>
-      <td>${r.agri!=null?fmt(r.agri):'<span class="null-val">—</span>'}</td>
+      <td>${r.co2!=null?fmt(r.co2):'<span class="null-val">—</span>'}</td>
+      <td>${r.ch4!=null?fmt(r.ch4):'<span class="null-val">—</span>'}</td>
+      <td>${r.n2o!=null?fmt(r.n2o):'<span class="null-val">—</span>'}</td>
       <td class="${r.land<0?'neg-val':''}">${r.land!=null?fmt(r.land):'<span class="null-val">—</span>'}</td>
       <td>${r.total!=null?fmt(r.total):'<span class="null-val">—</span>'}</td>
+      <td class="${r.net<0?'neg-val':''}">${r.net!=null?fmt(r.net):'<span class="null-val">—</span>'}</td>
       <td class="null-val">—</td><td class="null-val">—</td>
       <td style="color:var(--muted);font-size:10px;">歷史</td></tr>`;
   });
 
   // Forecast rows
-  d.forecast_table.forEach((r,i) => {
+  d.forecast_table.forEach((r) => {
     const cls = firstFc ? 'fc-row divider' : 'fc-row';
     firstFc = false;
     rows += `<tr class="${cls}"><td>${r.year}</td>
-      <td>${r.energy!=null?fmt(r.energy):'<span class="null-val">—</span>'}</td>
-      <td>${r.industry!=null?fmt(r.industry):'<span class="null-val">—</span>'}</td>
-      <td>${r.agri!=null?fmt(r.agri):'<span class="null-val">—</span>'}</td>
-      <td class="${r.land<0?'neg-val':''}">${r.land!=null?fmt(r.land):'<span class="null-val">—</span>'}</td>
+      <td class="null-val">—</td>
+      <td class="null-val">—</td>
+      <td class="null-val">—</td>
+      <td class="null-val">—</td>
       <td>${fmt(r.total)}</td>
+      <td class="null-val">—</td>
       <td>${fmt(r.upper95)}</td><td>${fmt(r.lower95)}</td>
       <td style="color:var(--sky);font-size:10px;">預測</td></tr>`;
   });
