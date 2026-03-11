@@ -2,7 +2,16 @@
 // 本地開發時自動指向 localhost:5000，部署後改為 Render URL
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:5000'
-  : 'https://ghg-emissions-scenarios.onrender.com';  // ← 部署後確認此網址
+  : 'https://ghg-emissions-scenarios.onrender.com';
+
+// Render 免費方案冷啟動喚醒（頁面載入時靜默 ping）
+(async()=>{
+  try{
+    await fetch(`${API_BASE}/api/health`,{method:'GET',signal:AbortSignal.timeout(8000)});
+  }catch(e){
+    // 冷啟動中，不影響使用者操作
+  }
+})();
 
 let charts={}, uploadedFile=null, analysisData=null;
 
