@@ -44,17 +44,32 @@ def add_cors_headers(response):
     response.headers['Access-Control-Max-Age'] = '86400'
     return response
 
-# OPTIONS preflight 路由（Render nginx proxy 有時不會自動處理）
-@app.route('/api/<path:dummy>', methods=['OPTIONS'])
-def handle_preflight(dummy):
-    resp = app.make_default_options_response()
+# OPTIONS preflight：明確列出每個路由，避免 Render proxy 攔截 wildcard
+def _cors_preflight_response():
     origin = request.headers.get('Origin', '').strip()
+    resp = app.make_default_options_response()
     if _allow_all or origin in _allowed_list:
         resp.headers['Access-Control-Allow-Origin'] = origin if origin else '*'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
     resp.headers['Access-Control-Max-Age'] = '86400'
     return resp
+
+@app.route('/api/upload',   methods=['OPTIONS'])
+def preflight_upload():   return _cors_preflight_response()
+
+@app.route('/api/analyze',  methods=['OPTIONS'])
+def preflight_analyze():  return _cors_preflight_response()
+
+@app.route('/api/columns',  methods=['OPTIONS'])
+def preflight_columns():  return _cors_preflight_response()
+
+@app.route('/api/scenarios',methods=['OPTIONS'])
+def preflight_scenarios(): return _cors_preflight_response()
+
+@app.route('/health')
+def health():
+    return safe_json({"status": "ok", "allowed_origins": _allowed_list if not _allow_all else "*"})
 
 # ── JSON 工具 ───────────────────────────────────────────
 def nan_to_none(obj):
