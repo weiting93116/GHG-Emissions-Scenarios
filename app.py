@@ -295,6 +295,39 @@ def arima_forecast(series, order, steps):
         "sigma":    round(float(sigma), 4)
     }
 
+
+# ── S型趨勢收歛修正 ──────────────────────────────────────
+def apply_sigmoid_damping(forecast, upper95, lower95, last_val, floor_ratio=0.60):
+    """
+    S 型收歛修正：加權混合 ARIMA 預測值與底部（floor）
+    - 短期（1–5年）：幾乎等於 ARIMA 原始值，保留短期預測精度
+    - 中期（~13年）：ARIMA 與 floor 各佔一半
+    - 長期（20年+）：幾乎等於 floor，不出現負值或過度外推
+    floor = last_val × floor_ratio（底部 = 最後歷史年 × 60%）
+    """
+    import math
+    n = len(forecast)
+    floor = last_val * floor_ratio
+    damped_fc, damped_up, damped_lo = [], [], []
+
+    for i in range(n):
+        t = i + 1
+        # w_arima 從 ~1 衰減至 ~0（k=0.20, midpoint=13）
+        k, midpoint = 0.20, 13.0
+        w_arima = 1.0 / (1.0 + math.exp(k * (t - midpoint)))
+        w_floor  = 1.0 - w_arima
+
+        raw = forecast[i]
+        damped_val = max(raw * w_arima + floor * w_floor, floor)
+
+        raw_width_up = upper95[i] - raw
+        raw_width_lo = raw - lower95[i]
+        damped_up.append(round(damped_val + raw_width_up * w_arima, 2))
+        damped_lo.append(round(max(damped_val - raw_width_lo * w_arima, floor * 0.85), 2))
+        damped_fc.append(round(damped_val, 2))
+
+    return damped_fc, damped_up, damped_lo
+
 # ── AD-EF 情境計算 ──────────────────────────────────────
 def adef_scenarios(base_val, steps, params):
     """
@@ -470,6 +503,13 @@ def analyze():
 
     orr=select_arima_order(ts); p,d,q=orr['p'],orr['d'],orr['q']
     fc=arima_forecast(ts,(p,d,q),steps); fy=list(range(ly+1,2051))
+
+    # ── S型收歛修正：防止長期外推出現負值 ──
+    last_obs = float(ts[-1])
+    fc['forecast'], fc['upper95'], fc['lower95'] = apply_sigmoid_damping(
+        fc['forecast'], fc['upper95'], fc['lower95'],
+        last_val=last_obs, floor_ratio=0.60
+    )
 
     # AD-EF 三情境
     params=_get_adef_params(request)
