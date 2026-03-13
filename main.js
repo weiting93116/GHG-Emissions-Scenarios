@@ -672,20 +672,20 @@ function render(d){
     mk('diffSeriesChart',{type:'line',data:{
       labels: diffLabels,
       datasets:[
-        {label:'原序列',   data:padNull(diag.orig_series,0,maxLen),              borderColor:'var(--teal)', borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
-        {label:'一階差分', data:padNull(diag.diff1_series||[],1,maxLen),         borderColor:'var(--sky)',  borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
-        {label:'二階差分', data:padNull(diag.diff2_series||[],2,maxLen),         borderColor:'var(--amber)',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
+        {label:'原序列',   data:padNull(diag.orig_series,0,maxLen),              borderColor:'#f87171', borderWidth:2,  pointRadius:0,tension:0.3,fill:false},
+        {label:'一階差分', data:padNull(diag.diff1_series||[],1,maxLen),         borderColor:'#fbbf24', borderWidth:2,  pointRadius:0,tension:0.3,fill:false},
+        {label:'二階差分', data:padNull(diag.diff2_series||[],2,maxLen),         borderColor:'#818cf8', borderWidth:2,  pointRadius:0,tension:0.3,fill:false},
       ]
     },options:{...BO,aspectRatio:2.4,
-      plugins:{...BO.plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:10},boxWidth:12}}},
-      scales:{x:{...SC,ticks:{maxTicksLimit:10}},y:{...SC,title:{display:true,text:'kt CO₂e',color:'#4a6070',font:{size:9}}}}}});
+      plugins:{...BO.plugins,legend:{display:true,labels:{color:'#c7d2fe',font:{size:10},boxWidth:12}}},
+      scales:{x:{...SC,ticks:{maxTicksLimit:10,color:'#94a3b8'}},y:{...SC,title:{display:true,text:'kt CO₂e',color:'#94a3b8',font:{size:9}},ticks:{color:'#94a3b8'}}}}}); 
 
     const acfSets=[];
-    if(diag.orig_acf)  acfSets.push({label:'原序列 ACF', data:diag.orig_acf,  backgroundColor:'rgba(0,229,192,.55)',  borderColor:'transparent'});
-    if(diag.diff1_acf&&diag.diff1_acf.length) acfSets.push({label:'一階差分 ACF',data:diag.diff1_acf,backgroundColor:'rgba(56,189,248,.55)', borderColor:'transparent'});
-    if(diag.diff2_acf&&diag.diff2_acf.length) acfSets.push({label:'二階差分 ACF',data:diag.diff2_acf,backgroundColor:'rgba(245,158,11,.55)',  borderColor:'transparent'});
+    if(diag.orig_acf)  acfSets.push({label:'原序列 ACF', data:diag.orig_acf,  backgroundColor:'rgba(248,113,113,.65)', borderColor:'transparent'});
+    if(diag.diff1_acf&&diag.diff1_acf.length) acfSets.push({label:'一階差分 ACF',data:diag.diff1_acf,backgroundColor:'rgba(251,191,36,.65)',  borderColor:'transparent'});
+    if(diag.diff2_acf&&diag.diff2_acf.length) acfSets.push({label:'二階差分 ACF',data:diag.diff2_acf,backgroundColor:'rgba(129,140,248,.65)', borderColor:'transparent'});
     mk('diffAcfChart',{type:'bar',data:{labels:lagLabels,datasets:acfSets},
-      options:{...BO,aspectRatio:1.6,plugins:{...BO.plugins,legend:{display:true,labels:{color:'#4a6070',font:{size:9},boxWidth:10}}},scales:{x:{...SC},y:{...SC,min:-1,max:1}}}});
+      options:{...BO,aspectRatio:1.6,plugins:{...BO.plugins,legend:{display:true,labels:{color:'#c7d2fe',font:{size:9},boxWidth:10}}},scales:{x:{...SC,ticks:{color:'#94a3b8'}},y:{...SC,min:-1,max:1,ticks:{color:'#94a3b8'}}}}});
   }
 
   // ── ACF / PACF ──
