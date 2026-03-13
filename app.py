@@ -11,7 +11,6 @@ from flask import Flask, request
 import pandas as pd
 import numpy as np
 import os, io, json, math, warnings
-from flask_cors import CORS
 warnings.filterwarnings("ignore")
 
 app = Flask(__name__)
@@ -21,14 +20,43 @@ _raw_origins  = os.environ.get('ALLOWED_ORIGINS', '*')
 _allowed_list = [o.strip() for o in _raw_origins.split(',') if o.strip()]
 _allow_all    = (_raw_origins.strip() == '*') or not _allowed_list
 
-# flask-cors 完全接管，不另外加 after_request（避免 header 衝突）
-CORS(app,
-     origins='*' if _allow_all else _allowed_list,
-     supports_credentials=False,
-     methods=['GET','POST','OPTIONS'],
-     allow_headers=['Content-Type','Accept'],
-     expose_headers=['Content-Type'],
-     automatic_options=True)
+def _cors_origin(origin):
+    """回傳應填入 Access-Control-Allow-Origin 的值，None 表示不允許"""
+    if not origin:
+        return '*'
+    if _allow_all:
+        return '*'
+    if origin in _allowed_list:
+        return origin
+    return None
+
+@app.after_request
+def apply_cors(response):
+    origin = request.headers.get('Origin', '').strip()
+    allowed = _cors_origin(origin)
+    if allowed:
+        response.headers['Access-Control-Allow-Origin']  = allowed
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
+        response.headers['Access-Control-Max-Age']       = '86400'
+        response.headers['Vary']                         = 'Origin'
+    return response
+
+@app.before_request
+def handle_options():
+    """OPTIONS preflight：直接在 before_request 攔截回傳，不進任何路由"""
+    if request.method == 'OPTIONS':
+        origin = request.headers.get('Origin', '').strip()
+        allowed = _cors_origin(origin)
+        resp = app.make_response('')
+        resp.status_code = 204
+        if allowed:
+            resp.headers['Access-Control-Allow-Origin']  = allowed
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
+            resp.headers['Access-Control-Max-Age']       = '86400'
+            resp.headers['Vary']                         = 'Origin'
+        return resp
 
 # ── JSON 工具 ───────────────────────────────────────────
 def nan_to_none(obj):
