@@ -10,6 +10,7 @@
 from flask import Flask, request
 import pandas as pd
 import numpy as np
+import statsmodels.api as sm
 import os, io, json, math, warnings
 warnings.filterwarnings("ignore")
 
@@ -351,37 +352,50 @@ def arima_forecast(series, order, steps):
 def _fit_log_arima(series, order, steps):
     """
     log-ARIMA：對 ln(y) 建模後 exp 還原
-    自然防止預測值為負；長期預測不會無限外推至負值
-    回傳原始尺度的 forecast / upper95 / lower95
+    - epsilon 保護：值<=0 時加偏移防 log(0)
+    - d 上限為 1：d=2 在 log 空間長期外推必發散
     """
     from statsmodels.tsa.arima.model import ARIMA as SM_ARIMA
-    log_s = np.log(series)
+
+    # epsilon 保護
+    s_min = float(np.nanmin(series))
+    epsilon = max(1.0, abs(s_min) / 1000) if s_min <= 0 else 0.0
+    series_adj = series + epsilon
+    log_s = np.log(series_adj)
+
     p, d, q = order
-    model  = SM_ARIMA(log_s, order=(p, d, q)).fit(
+    d = min(d, 1)  # d=2 在 log 空間雙重差分，長期外推必發散，上限 1
+
+    model = SM_ARIMA(log_s, order=(p, d, q)).fit(
         method_kwargs={"warn_convergence": False})
     fc_obj = model.get_forecast(steps=steps)
     log_mu = fc_obj.predicted_mean.values
     log_ci = fc_obj.conf_int(alpha=0.05).values
-    # delta method 還原（exp(mu + sigma²/2) 為無偏估計）
-    sigma2 = float(model.params.get("sigma2", np.var(model.resid)))
-    fc_mean = np.exp(log_mu + sigma2 / 2)
-    fc_up   = np.exp(log_ci[:, 1])
-    fc_lo   = np.exp(log_ci[:, 0])
-    # 樣本內殘差（原始尺度）
-    in_sample = np.exp(model.fittedvalues)
+
+    sigma2  = float(model.params.get("sigma2", np.var(model.resid)))
+    fc_mean = np.exp(log_mu + sigma2 / 2) - epsilon
+    fc_up   = np.exp(log_ci[:, 1]) - epsilon
+    fc_lo   = np.exp(log_ci[:, 0]) - epsilon
+    fc_mean = np.maximum(fc_mean, 0)
+    fc_lo   = np.maximum(fc_lo,   0)
+
+    # in_sample 還原，對齊原始序列長度
+    fitted = np.exp(np.array(model.fittedvalues, dtype=float)) - epsilon
+    if len(fitted) < len(series):
+        fitted = np.concatenate([[float(series[0])], fitted])
+    in_sample = np.array(fitted[:len(series)], dtype=float)
+
     return {
-        "forecast": [round(float(v), 2) for v in fc_mean],
-        "upper95":  [round(float(v), 2) for v in fc_up],
-        "lower95":  [round(float(v), 2) for v in fc_lo],
-        "sigma":    round(float(np.sqrt(sigma2)), 4),
-        "aic":      round(float(model.aic), 4),
-        "model_obj": model,
-        "in_sample": in_sample,
+        "forecast":   [round(float(v), 2) for v in fc_mean],
+        "upper95":    [round(float(v), 2) for v in fc_up],
+        "lower95":    [round(float(v), 2) for v in fc_lo],
+        "sigma":      round(float(np.sqrt(sigma2)), 4),
+        "aic":        round(float(model.aic), 4),
+        "model_obj":  model,
+        "in_sample":  in_sample,
         "log_series": log_s,
-        "order": order,
+        "order":      (p, d, q),
     }
-
-
 def _fit_ets(series, steps):
     """
     ETS（指數平滑狀態空間模型）
