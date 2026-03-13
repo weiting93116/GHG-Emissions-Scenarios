@@ -429,6 +429,35 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
   </div>
 
 
+
+  <!-- OOS驗證 + MC情境 + 方法論段落 -->
+  <div class="chart-grid-2" style="margin-bottom:14px" id="oosSection">
+    <!-- OOS 樣本外驗證表 -->
+    <div class="card" id="oosCard">
+      <div class="card-title"><span class="card-dot" style="background:#fb923c"></span>樣本外驗證（Hold-out OOS）+ DM 檢定</div>
+      <div id="oosBody" style="font-size:12px;color:#94a3b8;line-height:1.8"></div>
+    </div>
+    <!-- MC 百分位結果 -->
+    <div class="card" id="mcCard">
+      <div class="card-title"><span class="card-dot" style="background:#818cf8"></span>蒙地卡羅模擬（1,000 次）不確定性區間</div>
+      <canvas id="cMC" height="150"></canvas>
+    </div>
+  </div>
+
+  <!-- 方法論段落 -->
+  <div class="card" style="margin-bottom:14px" id="methodsCard">
+    <div class="chart-toolbar">
+      <div class="card-title"><span class="card-dot" style="background:#4ade80"></span>自動生成方法論段落（可直接貼入論文）</div>
+      <div class="chart-actions">
+        <button class="chart-btn" id="methodsLangBtn" onclick="toggleMethodsLang()">切換英文</button>
+        <button class="chart-btn" onclick="copyMethods()">⎘ 複製</button>
+      </div>
+    </div>
+    <pre id="methodsText" style="white-space:pre-wrap;font-size:11.5px;color:#94a3b8;
+      line-height:1.75;background:#080c12;padding:14px;border-radius:6px;
+      border:1px solid #1e293b;max-height:420px;overflow-y:auto;font-family:inherit"></pre>
+  </div>
+
   <!-- 診斷圖區塊 -->
   <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,#1a1f2e 0%,#1e2438 60%,#1a2030 100%);border:1px solid rgba(129,140,248,.25);box-shadow:0 0 20px rgba(129,140,248,.08)">
     <div class="card-title"><span class="card-dot" style="background:#818cf8"></span>差分分析（原序列 / 一階差分 / 二階差分 + ACF）</div>

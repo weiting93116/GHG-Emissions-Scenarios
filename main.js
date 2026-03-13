@@ -782,6 +782,106 @@ function render(d){
 }
 
 
+
+// ════════════════════════════════════════════════════════
+// ── OOS驗證 + DM檢定 + MC模擬 + 方法論段落 ─────────────
+// ════════════════════════════════════════════════════════
+
+let _methodsData = {zh:'', en:''}; let _methodsLang = 'zh';
+
+function renderOosDm(dm) {
+  const el = document.getElementById('oosBody'); if(!el) return;
+  if(!dm || dm.error){ el.innerHTML=`<span style="color:#f87171">${dm?.error||'未執行'}</span>`; return; }
+  const oos = dm.oos||{}; const la = oos.log_arima||{}; const et = oos.ets||{};
+  const pCol = dm.hln_pval < 0.05 ? '#4ade80' : '#fbbf24';
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+      <tr style="border-bottom:1px solid #1e293b">
+        <th style="text-align:left;color:#64748b;padding:3px 8px;font-weight:400">指標</th>
+        <th style="text-align:right;color:#38bdf8;padding:3px 8px">log-ARIMA</th>
+        <th style="text-align:right;color:#a78bfa;padding:3px 8px">ETS</th>
+      </tr>
+      <tr><td style="padding:3px 8px;color:#94a3b8">OOS MAPE (%)</td>
+        <td style="text-align:right;padding:3px 8px">${la.mape??'—'}</td>
+        <td style="text-align:right;padding:3px 8px">${et.mape??'—'}</td></tr>
+      <tr style="background:#0a0e17"><td style="padding:3px 8px;color:#94a3b8">OOS RMSE (kt)</td>
+        <td style="text-align:right;padding:3px 8px">${la.rmse!=null?Number(la.rmse).toLocaleString():'—'}</td>
+        <td style="text-align:right;padding:3px 8px">${et.rmse!=null?Number(et.rmse).toLocaleString():'—'}</td></tr>
+      <tr><td style="padding:3px 8px;color:#94a3b8">OOS MAE (kt)</td>
+        <td style="text-align:right;padding:3px 8px">${la.mae!=null?Number(la.mae).toLocaleString():'—'}</td>
+        <td style="text-align:right;padding:3px 8px">${et.mae!=null?Number(et.mae).toLocaleString():'—'}</td></tr>
+      <tr style="background:#0a0e17;border-top:1px solid #1e293b">
+        <td colspan="3" style="padding:6px 8px;color:#94a3b8">
+          <strong style="color:#e2e8f0">DM 檢定</strong>（HLN 小樣本修正，h=${dm.h||'?'}期）<br>
+          HLN 統計量 = <strong>${dm.hln_stat??'—'}</strong>，
+          p = <strong style="color:${pCol}">${dm.hln_pval??'—'}</strong><br>
+          <span style="color:${pCol}">${dm.conclusion||'—'}</span>
+        </td>
+      </tr>
+    </table>
+    <div style="margin-top:6px;font-size:10.5px;color:#475569">
+      ✦ Hold-out：${oos.holdout_n||'?'} 期滾動原點預測（Rolling origin）<br>
+      ✦ 引用：Diebold &amp; Mariano (1995) JBES；Harvey et al. (1997) IJF
+    </div>`;
+}
+
+function renderMC(mc, fy, hLen) {
+  if(!mc || mc.error || !fy) return;
+  const KEYS = [
+    {k:'bau',    label:'BAU p5–95',     p5c:'rgba(245,158,11,.15)', p50c:'#f59e0b'},
+    {k:'policy', label:'積極政策 p5–95', p5c:'rgba(56,189,248,.15)', p50c:'#38bdf8'},
+    {k:'ndc',    label:'NDC淨零 p5–95', p5c:'rgba(0,229,192,.15)',  p50c:'#00e5c0'},
+  ];
+  const allY = [...Array(hLen).fill(null), ...fy];  // pad history slots
+  const fLen = fy.length;
+  const datasets = [];
+  KEYS.forEach(({k, label, p5c, p50c}) => {
+    const s = mc[k]; if(!s) return;
+    const pad = v => [...Array(hLen).fill(null), ...v];
+    datasets.push(
+      {label:'', data:pad(s.p95), borderColor:'transparent', backgroundColor:p5c,
+       fill:'+1', pointRadius:0},
+      {label:'', data:pad(s.p5),  borderColor:'transparent', fill:false, pointRadius:0},
+      {label:label+' (p50)', data:pad(s.p50), borderColor:p50c,
+       borderWidth:1.5, borderDash:[4,3], pointRadius:0, tension:0.3, fill:false},
+    );
+  });
+  mk('cMC', {type:'line', data:{
+    labels: [...analysisData.hist_years, ...fy],
+    datasets
+  }, options:{...lopts('kt CO₂e', 1.8),
+    plugins:{...lopts('kt CO₂e',1.8).plugins,
+      legend:{display:true, labels:{
+        color:'#4a6070', font:{size:9}, boxWidth:10,
+        filter: item => item.text.includes('p50')
+      }}
+    }
+  }});
+}
+
+function renderMethodsText(methods) {
+  if(!methods || methods.error) return;
+  _methodsData = methods;
+  document.getElementById('methodsText').textContent = methods.zh || '';
+  document.getElementById('methodsCard').style.display='';
+}
+
+function toggleMethodsLang() {
+  _methodsLang = _methodsLang === 'zh' ? 'en' : 'zh';
+  document.getElementById('methodsText').textContent = _methodsData[_methodsLang] || '';
+  document.getElementById('methodsLangBtn').textContent =
+    _methodsLang === 'zh' ? '切換英文' : '切換中文';
+}
+
+function copyMethods() {
+  const txt = document.getElementById('methodsText').textContent;
+  navigator.clipboard.writeText(txt).then(()=>{
+    const btn = document.querySelector('[onclick="copyMethods()"]');
+    const orig = btn.textContent; btn.textContent='✓ 已複製';
+    setTimeout(()=>btn.textContent=orig, 1800);
+  });
+}
+
 // ════════════════════════════════════════════════════════
 // ── 模型驗證 + 情境引用 + 預測數字表（論文版）─────────
 // ════════════════════════════════════════════════════════
