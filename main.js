@@ -342,6 +342,8 @@ const sliders=[
 sliders.forEach(([id,vid,fmt])=>{
   const el=document.getElementById(id);
   el.addEventListener('input',()=>{document.getElementById(vid).textContent=fmt(el.value)});
+  // 頁面載入時立即同步顯示值（確保與 value=0 一致）
+  document.getElementById(vid).textContent=fmt(el.value);
 });
 
 function getParams(){
@@ -434,6 +436,14 @@ async function updateScenarios(){
     document.getElementById('s-ndc').textContent=fmtN(sc.ndc.values[sc.ndc.values.length-1]);
     analysisData.scenarios=sc;
     updateForecastTable(analysisData, d.scenarios);
+    // 同步更新 MC 圖和預測數字表（情境改變後需重繪）
+    if(d.mc_result) analysisData.mc_result = d.mc_result;
+    if(d.bau_cagr != null){ analysisData.bau_cagr=d.bau_cagr; analysisData.sigma_data=d.sigma_data; }
+    analysisData.scenarios = d.scenarios;
+    renderFcTable(analysisData, analysisData.scenarios);
+    renderMC(analysisData.mc_result, analysisData.fc_years, analysisData.hist_years.length);
+    renderZA(analysisData.za_result, analysisData.bau_cagr, analysisData.sigma_data);
+    renderValidation(analysisData);
     if(document.getElementById('exportPanel').style.display==='block') buildExportPanel();
   }catch(e){showErr('情境更新失敗：'+e.message)}
 }
@@ -778,6 +788,13 @@ function render(d){
   }
 
   updateForecastTable(d, sc);
+
+  renderValidation(d);
+  renderFcTable(d, sc);
+  renderOosDm(d.dm_result);
+  renderMC(d.mc_result, d.fc_years, d.hist_years.length);
+  renderZA(d.za_result, d.bau_cagr, d.sigma_data);
+
   document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
@@ -791,7 +808,9 @@ let _methodsData = {zh:'', en:''}; let _methodsLang = 'zh';
 
 function renderOosDm(dm) {
   const el = document.getElementById('oosBody'); if(!el) return;
-  if(!dm || dm.error){ el.innerHTML=`<span style="color:#f87171">${dm?.error||'未執行'}</span>`; return; }
+  if(!dm){ el.innerHTML='<span style="color:#64748b">未執行</span>'; return; }
+  if(dm.skipped){ el.innerHTML=`<span style="color:#fbbf24">⚠️ ${dm.reason}</span>`; return; }
+  if(dm.error){ el.innerHTML=`<span style="color:#f87171">❌ ${dm.error}</span>`; return; }
   const oos = dm.oos||{}; const la = oos.log_arima||{}; const et = oos.ets||{};
   const pCol = dm.hln_pval < 0.05 ? '#4ade80' : '#fbbf24';
   el.innerHTML = `
@@ -826,7 +845,8 @@ function renderOosDm(dm) {
 }
 
 function renderMC(mc, fy, hLen) {
-  if(!mc || mc.error || !fy) return;
+  if(!mc || !fy) return;
+  if(mc.skipped || mc.error) return;  // skipped 時靜默，不顯示錯誤
   const KEYS = [
     {k:'bau',    label:'BAU p5–95',     p5c:'rgba(245,158,11,.15)', p50c:'#f59e0b'},
     {k:'policy', label:'積極政策 p5–95', p5c:'rgba(56,189,248,.15)', p50c:'#38bdf8'},
@@ -1068,7 +1088,7 @@ function updateForecastTable(d, sc){
       <td>${r.co2!=null?fmtN(r.co2):'<span class="null-val">—</span>'}</td>
       <td>${r.ch4!=null?fmtN(r.ch4):'<span class="null-val">—</span>'}</td>
       <td>${r.n2o!=null?fmtN(r.n2o):'<span class="null-val">—</span>'}</td>
-      <td class="${r.land<0?'neg-val':''}">${r.land!=null?fmtN(r.land):'<span class="null-val">—</span>'}</td>
+      <td class="${r.land!=null&&r.land<0?'neg-val':''}">${r.land!=null?fmtN(r.land):'<span class="null-val">—</span>'}</td>
       <td>${r.total!=null?fmtN(r.total):'<span class="null-val">—</span>'}</td>
       <td class="${r.net<0?'neg-val':''}">${r.net!=null?fmtN(r.net):'<span class="null-val">—</span>'}</td>
       <td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td>
