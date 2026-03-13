@@ -6,6 +6,7 @@
 <title>溫室氣體排放預測系統 2050</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -447,7 +448,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 </div><!-- /wrap -->
 
 <script>
-
+// 動態載入 main.js，相容 GitHub Pages 子目錄與本機開發
 (function(){
   var s = document.createElement('script');
   var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';

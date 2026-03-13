@@ -1,3 +1,8 @@
+// ── Datalabels Plugin 全域設定（預設關閉，匯出時開啟）──────
+// 先把 plugin 設為全域 disabled，不影響平時畫面顯示效能
+Chart.register(ChartDataLabels);
+Chart.defaults.plugins.datalabels.display = false;
+
 // ── API Base URL ──────────────────────────────────────────
 // 本地開發時自動指向 localhost:5000，部署後改為 Render URL
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -100,18 +105,75 @@ document.getElementById('chartLightbox').addEventListener('click',function(e){
 // ════════════════════════════════════════
 function exportChartPng(chartId, filename){
   const c=charts[chartId]; if(!c)return;
-  // 白背景
-  const origCanvas=c.canvas;
-  const tmp=document.createElement('canvas');
-  tmp.width=origCanvas.width; tmp.height=origCanvas.height;
-  const ctx=tmp.getContext('2d');
-  ctx.fillStyle='#0d1117';
-  ctx.fillRect(0,0,tmp.width,tmp.height);
-  ctx.drawImage(origCanvas,0,0);
-  const a=document.createElement('a');
-  a.href=tmp.toDataURL('image/png');
-  a.download=(filename||chartId)+'.png';
+
+  // ── 匯出前：臨時開啟 datalabels 數值標籤 ──
+  const skipTypes = new Set(['doughnut','bar']); // 圓餅/長條本身已有標籤，不重複
+  const isSkip = c.config.type && skipTypes.has(c.config.type);
+
+  if(!isSkip){
+    c.data.datasets.forEach((ds,di)=>{
+      // 只對主線（歷史 or 預測主線）加標籤，跳過信心帶、null 填充資料集
+      const isMainLine = ds.borderWidth >= 1.5 && ds.borderDash === undefined && ds.label && !ds.label.includes('界') && !ds.label.includes('CI');
+      if(!isMainLine) return;
+      const data = ds.data || [];
+      // 每 5 年顯示一個數值（讓圖不擁擠）
+      ds._exportLabels = ds.datalabels || {};
+      ds.datalabels = {
+        display: (ctx) => {
+          const v = data[ctx.dataIndex];
+          if(v == null) return false;
+          // 取對應 label（年份），每 5 年一個，或最後一個
+          const lbl = c.data.labels?.[ctx.dataIndex];
+          const yr = parseInt(lbl);
+          return (!isNaN(yr) && yr % 5 === 0) || ctx.dataIndex === data.length - 1;
+        },
+        formatter: (v) => {
+          if(v == null) return '';
+          const n = Math.abs(v);
+          if(n >= 100000) return (v/1000).toFixed(0)+'M';
+          if(n >= 1000)   return (v/1000).toFixed(1)+'k';
+          return Number(v).toFixed(1);
+        },
+        color: '#e2e8f0',
+        font: { size: 9, weight: 'bold', family: 'Arial' },
+        anchor: 'end',
+        align: 'top',
+        offset: 2,
+        backgroundColor: 'rgba(13,17,23,0.65)',
+        borderRadius: 3,
+        padding: { top:2, bottom:2, left:4, right:4 },
+        clip: true,
+      };
+    });
+    c.update('none'); // 不動畫，直接重繪
+  }
+
+  // ── 截圖 ──
+  const origCanvas = c.canvas;
+  const tmp = document.createElement('canvas');
+  const scale = 2; // 2x 高解析度輸出
+  tmp.width  = origCanvas.width  * scale;
+  tmp.height = origCanvas.height * scale;
+  const ctx = tmp.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, origCanvas.width, origCanvas.height);
+  ctx.drawImage(origCanvas, 0, 0);
+  const a = document.createElement('a');
+  a.href = tmp.toDataURL('image/png');
+  a.download = (filename || chartId) + '.png';
   a.click();
+
+  // ── 匯出後：恢復關閉 datalabels ──
+  if(!isSkip){
+    c.data.datasets.forEach(ds=>{
+      if(ds._exportLabels !== undefined){
+        ds.datalabels = ds._exportLabels;
+        delete ds._exportLabels;
+      }
+    });
+    c.update('none');
+  }
 }
 async function doExportCharts(){
   const ids=['mainChart','cCO2','cCH4','cN2O','cNet','aicChart','diffSeriesChart','diffAcfChart','acfChart','residChart'];
@@ -419,6 +481,27 @@ function render(d){
     plugins:{
       ...lopts('kt CO₂e',1.9).plugins,
       legend:{display:false},
+      datalabels:{
+        // ARIMA 中位預測線 dataset index 2（histFull 後接預測），每5年一個標籤
+        display:(ctx)=>{
+          if(ctx.datasetIndex!==2) return false;
+          const v=ctx.dataset.data[ctx.dataIndex];
+          if(v==null) return false;
+          const yr=parseInt(ctx.chart.data.labels?.[ctx.dataIndex]);
+          return !isNaN(yr)&&(yr%5===0||ctx.dataIndex===ctx.dataset.data.length-1);
+        },
+        formatter:(v)=>{
+          if(v==null) return '';
+          return (v/1000).toFixed(0)+'k';
+        },
+        color:'rgba(0,229,192,0.9)',
+        font:{size:9,family:'Arial',weight:'bold'},
+        anchor:'end',align:'top',offset:3,
+        backgroundColor:'rgba(13,17,23,0.7)',
+        borderRadius:3,
+        padding:{top:2,bottom:2,left:4,right:4},
+        clip:true,
+      },
     }
   },plugins:[buildTooltipPlugin('mainChart',mainMeta)]});
 
@@ -462,7 +545,34 @@ function render(d){
       {data:[...Array(hLen).fill(null),...g.lower95],borderColor:'transparent',fill:false,pointRadius:0,label:'下界'},
       {data:[...g.history,...Array(fLen).fill(null)],borderColor:col,borderWidth:2,pointRadius:0,tension:0.3,fill:false,label:`${gasLabel} 歷史`},
       {data:[...Array(hLen).fill(null),...g.forecast],borderColor:col,borderWidth:1.5,borderDash:[5,3],pointRadius:0,tension:0.3,fill:false,label:`${gasLabel} 預測`},
-    ]},options:{...lopts('kt CO₂e',1.6),plugins:{...lopts('kt CO₂e',1.6).plugins,legend:{display:false}}},
+    ]},options:{...lopts('kt CO₂e',1.6),plugins:{
+      ...lopts('kt CO₂e',1.6).plugins,
+      legend:{display:false},
+      datalabels:{
+        // 預測線（dataset index 3）每5年顯示數值
+        display:(ctx)=>{
+          if(ctx.datasetIndex!==3) return false; // 只標預測主線
+          const v=ctx.dataset.data[ctx.dataIndex];
+          if(v==null) return false;
+          const yr=parseInt(ctx.chart.data.labels?.[ctx.dataIndex]);
+          return !isNaN(yr)&&(yr%5===0||ctx.dataIndex===ctx.dataset.data.length-1);
+        },
+        formatter:(v)=>{
+          if(v==null) return '';
+          const n=Math.abs(v);
+          if(n>=100000) return (v/1000).toFixed(0)+'M';
+          if(n>=1000)   return (v/1000).toFixed(1)+'k';
+          return Number(v).toFixed(1);
+        },
+        color:'#93c5fd',
+        font:{size:9,family:'Arial',weight:'bold'},
+        anchor:'end',align:'top',offset:2,
+        backgroundColor:'rgba(13,17,23,0.7)',
+        borderRadius:3,
+        padding:{top:2,bottom:2,left:3,right:3},
+        clip:true,
+      }
+    }},
     plugins:[buildTooltipPlugin(id,gasMeta)]});
   });
 
