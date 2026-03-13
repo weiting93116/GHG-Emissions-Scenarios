@@ -331,33 +331,48 @@ def apply_sigmoid_damping(forecast, upper95, lower95, last_val, floor_ratio=0.60
 # ── AD-EF 情境計算 ──────────────────────────────────────
 def adef_scenarios(base_val, steps, params):
     """
-    三情境 AD-EF 預測
-    base_val: 基準年排放量
-    params: {gdp, pop, eff, re, elasticity}
-    回傳: {bau, policy, ndc} 各 steps 步預測值
+    三情境 AD-EF 預測（重構版）
+    
+    設計邏輯：
+    - 情境本身有「內建基礎減排率」，不依賴滑桿即可產生差異
+    - 滑桿是「額外外生變數」，在基礎率上疊加
+    - 全 0 時三條線仍有差距，反映各情境的政策力道不同
+    
+    情境基礎年淨變化率（無論滑桿值如何）：
+      BAU:    +0.5%/年（微幅自然成長）
+      積極政策: -1.0%/年（積極節能）
+      NDC:    -2.5%/年（達標所需）
+    
+    滑桿額外貢獻（疊加在基礎率上）：
+      AD 驅動增加：gdp × elasticity + pop × 0.35
+      EF 效率減少：eff + re × 0.012
     """
-    gdp     = params.get("gdp", 0.025)      # GDP 成長率
-    pop     = params.get("pop", 0.003)      # 人口成長率
-    eff     = params.get("eff", 0.015)      # 能效改善率
-    re      = params.get("re",  0.30)       # 再生能源目標
-    ela     = params.get("elasticity", 0.65) # GDP 彈性係數
+    gdp = params.get("gdp", 0.0)
+    pop = params.get("pop", 0.0)
+    eff = params.get("eff", 0.0)
+    re  = params.get("re",  0.0)
+    ela = params.get("elasticity", 0.0)
+
+    # 外生變數貢獻（滑桿）
+    exog_ad = gdp * ela + pop * 0.35   # 需求端成長
+    exog_ef = eff + re * 0.012          # 效率端下降
 
     scenarios = {
-        "bau":    {"ad_mult":1.0, "ef_mult":1.0,  "label":"基準情境 (BAU)",      "color":"#f59e0b"},
-        "policy": {"ad_mult":0.9, "ef_mult":1.4,  "label":"積極政策情境",         "color":"#38bdf8"},
-        "ndc":    {"ad_mult":0.8, "ef_mult":1.8,  "label":"NDC 目標情境",         "color":"#00e5c0"},
+        "bau":    {"base_rate": +0.005, "label":"基準情境 (BAU)",  "color":"#f59e0b"},
+        "policy": {"base_rate": -0.010, "label":"積極政策情境",     "color":"#38bdf8"},
+        "ndc":    {"base_rate": -0.025, "label":"NDC 目標情境",     "color":"#00e5c0"},
     }
     result = {}
     for key, sc in scenarios.items():
-        ad_growth  = (gdp * ela + pop * 0.35) * sc["ad_mult"]
-        ef_reduction = (eff + re * 0.012) * sc["ef_mult"]
-        net_rate   = ad_growth - ef_reduction
+        # 情境淨變化率 = 情境基礎率 + 外生AD貢獻 - 外生EF貢獻
+        net_rate = sc["base_rate"] + exog_ad - exog_ef
         vals = []
         v = base_val
         for _ in range(steps):
             v = v * (1 + net_rate)
             vals.append(round(v, 2))
-        result[key] = {"values": vals, **{k:v2 for k,v2 in sc.items()}}
+        result[key] = {"values": vals,
+                       "label": sc["label"], "color": sc["color"]}
     return result
 
 

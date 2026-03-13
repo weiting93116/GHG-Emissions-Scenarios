@@ -452,7 +452,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 (function(){
   var s = document.createElement('script');
   var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
-  s.src = isLocal ? 'main.js' : '/GHG-Emissions-Scenarios/main.js';
+  var v='?v=1773387046'; s.src = isLocal ? 'main.js'+v : '/GHG-Emissions-Scenarios/main.js'+v;
   s.onerror = function(){ console.error('main.js 載入失敗，嘗試相對路徑'); var s2=document.createElement('script'); s2.src='main.js'; document.body.appendChild(s2); };
   document.body.appendChild(s);
 })();
