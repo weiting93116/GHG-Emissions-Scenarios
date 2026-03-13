@@ -172,6 +172,13 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 /* Responsive */
 @media(max-width:960px){.chart-grid-main,.chart-grid-3{grid-template-columns:1fr}.chart-grid-2{grid-template-columns:1fr}.param-cards{grid-template-columns:1fr}}
 @media(max-width:600px){.stats-row{grid-template-columns:repeat(2,1fr)}header{flex-direction:column}}
+
+  #fcTable th{position:sticky;top:0;background:#0d1117;color:#e2e8f0;padding:5px 10px;text-align:right;border-bottom:1px solid #1e293b;white-space:nowrap}
+  #fcTable th:first-child{text-align:center}
+  #fcTable td{padding:4px 10px;text-align:right;border-bottom:1px solid #0f1923;white-space:nowrap}
+  #fcTable td:first-child{text-align:center;color:#64748b}
+  #fcTable tr:hover td{background:#111827}
+  #fcTable .hi-row td{color:#e2e8f0;font-weight:600;background:#111827}
 </style>
 </head>
 <body>
@@ -353,6 +360,24 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     </div>
   </div>
 
+  <!-- 部門分解 ARIMA 圖 -->
+  <div class="card" id="sectorCard" style="margin-bottom:14px;display:none">
+    <div class="chart-toolbar">
+      <div class="card-title"><span class="card-dot" style="background:#f97316"></span>排放部門分解：各部門 ARIMA 預測</div>
+      <div class="chart-actions">
+        <button class="chart-btn" onclick="expandChart('cSectorStack','部門分解')">⛶</button>
+        <button class="chart-btn" onclick="exportChartPng('cSectorStack','部門分解')">↓</button>
+      </div>
+    </div>
+    <canvas id="cSectorStack" height="130"></canvas>
+  </div>
+  <div class="chart-grid-2" id="sectorIndGrid" style="margin-bottom:14px;display:none">
+    <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#f97316"></span>能源部門</div><div class="chart-actions"><button class="chart-btn" onclick="exportChartPng('cEnergy','能源部門')">↓</button></div></div><canvas id="cEnergy" height="130"></canvas></div>
+    <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#a78bfa"></span>工業製程</div><div class="chart-actions"><button class="chart-btn" onclick="exportChartPng('cIndustry','工業製程')">↓</button></div></div><canvas id="cIndustry" height="130"></canvas></div>
+    <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#4ade80"></span>農業部門</div><div class="chart-actions"><button class="chart-btn" onclick="exportChartPng('cAgri','農業部門')">↓</button></div></div><canvas id="cAgri" height="130"></canvas></div>
+    <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#fb923c"></span>廢棄物部門</div><div class="chart-actions"><button class="chart-btn" onclick="exportChartPng('cWaste','廢棄物部門')">↓</button></div></div><canvas id="cWaste" height="130"></canvas></div>
+  </div>
+
   <!-- 氣體種類圖 -->
   <div class="chart-grid-3">
     <div class="card"><div class="chart-toolbar"><div class="card-title"><span class="card-dot" style="background:#60a5fa"></span>CO₂ 歷史 + 預測</div><div class="chart-actions"><button class="chart-btn" onclick="expandChart('cCO2','CO₂ 預測')">⛶</button><button class="chart-btn" onclick="exportChartPng('cCO2','CO2預測')">↓</button></div></div><canvas id="cCO2" height="130"></canvas></div>
@@ -369,6 +394,37 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     <div class="card">
       <div class="card-title"><span class="card-dot" style="background:var(--violet)"></span>Auto-ARIMA AIC 各階數比較</div>
       <canvas id="aicChart" height="130"></canvas>
+    </div>
+  </div>
+
+
+  <!-- 模型驗證指標 + 預測數字表格 -->
+  <div class="chart-grid-2" style="margin-bottom:14px" id="validationSection" style="display:none">
+    <!-- 左：模型比較與驗證指標 -->
+    <div class="card" id="modelValidCard">
+      <div class="card-title"><span class="card-dot" style="background:#a78bfa"></span>模型比較與統計驗證</div>
+      <div id="modelValidBody" style="font-size:12px;color:#94a3b8;line-height:1.8"></div>
+    </div>
+    <!-- 右：情境說明與引用來源 -->
+    <div class="card" id="scenarioCitCard">
+      <div class="card-title"><span class="card-dot" style="background:#34d399"></span>AD-EF 情境參數來源</div>
+      <div id="scenarioCitBody" style="font-size:12px;color:#94a3b8;line-height:1.8"></div>
+    </div>
+  </div>
+
+  <!-- 完整預測數字表格 -->
+  <div class="card" style="margin-bottom:14px" id="fcTableCard">
+    <div class="chart-toolbar">
+      <div class="card-title"><span class="card-dot" style="background:#f59e0b"></span>完整預測數字表（點估計 + 95% CI）</div>
+      <div class="chart-actions">
+        <button class="chart-btn" onclick="exportFcTableCsv()" title="下載 CSV">↓ CSV</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;max-height:340px;overflow-y:auto">
+      <table id="fcTable" style="width:100%;border-collapse:collapse;font-size:11.5px;color:#94a3b8">
+        <thead id="fcTableHead"></thead>
+        <tbody id="fcTableBody"></tbody>
+      </table>
     </div>
   </div>
 

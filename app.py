@@ -79,6 +79,7 @@ def detect_columns(df):
         "energy":   ["energy","能源"],
         "industry": ["industry","工業"],
         "agri":     ["agri","農業"],
+        "waste":    ["waste","waste_ghg","廢棄物","廢棄物部門"],
         "hfc":      ["hfcs_value","hfc","hfcs","氫氟碳化物"],
         "pfc":      ["pfcs_value","pfc","pfcs","全氟碳化物"],
         "sf6":      ["sf6_value","sf6","六氟化硫"],
@@ -296,56 +297,226 @@ def arima_forecast(series, order, steps):
     }
 
 
-# ── S型趨勢收歛修正 ──────────────────────────────────────
-def apply_sigmoid_damping(forecast, upper95, lower95, last_val, floor_ratio=0.60):
+# ══════════════════════════════════════════════════════════════
+# 核心預測引擎（論文版）
+# 策略：log-ARIMA 與 ETS 並跑，AIC 自動選最佳
+# 文獻依據：
+#   Box & Jenkins (1976), Hyndman & Khandakar (2008, JSS),
+#   Hyndman & Athanasopoulos (2021) Forecasting: P&P ch.8-9
+# ══════════════════════════════════════════════════════════════
+
+def _fit_log_arima(series, order, steps):
     """
-    S 型收歛修正：加權混合 ARIMA 預測值與底部（floor）
-    - 短期（1–5年）：幾乎等於 ARIMA 原始值，保留短期預測精度
-    - 中期（~13年）：ARIMA 與 floor 各佔一半
-    - 長期（20年+）：幾乎等於 floor，不出現負值或過度外推
-    floor = last_val × floor_ratio（底部 = 最後歷史年 × 60%）
+    log-ARIMA：對 ln(y) 建模後 exp 還原
+    自然防止預測值為負；長期預測不會無限外推至負值
+    回傳原始尺度的 forecast / upper95 / lower95
     """
-    import math
-    n = len(forecast)
-    floor = last_val * floor_ratio
-    damped_fc, damped_up, damped_lo = [], [], []
+    from statsmodels.tsa.arima.model import ARIMA as SM_ARIMA
+    log_s = np.log(series)
+    p, d, q = order
+    model  = SM_ARIMA(log_s, order=(p, d, q)).fit(
+        method_kwargs={"warn_convergence": False})
+    fc_obj = model.get_forecast(steps=steps)
+    log_mu = fc_obj.predicted_mean.values
+    log_ci = fc_obj.conf_int(alpha=0.05).values
+    # delta method 還原（exp(mu + sigma²/2) 為無偏估計）
+    sigma2 = float(model.params.get("sigma2", np.var(model.resid)))
+    fc_mean = np.exp(log_mu + sigma2 / 2)
+    fc_up   = np.exp(log_ci[:, 1])
+    fc_lo   = np.exp(log_ci[:, 0])
+    # 樣本內殘差（原始尺度）
+    in_sample = np.exp(model.fittedvalues)
+    return {
+        "forecast": [round(float(v), 2) for v in fc_mean],
+        "upper95":  [round(float(v), 2) for v in fc_up],
+        "lower95":  [round(float(v), 2) for v in fc_lo],
+        "sigma":    round(float(np.sqrt(sigma2)), 4),
+        "aic":      round(float(model.aic), 4),
+        "model_obj": model,
+        "in_sample": in_sample,
+        "log_series": log_s,
+        "order": order,
+    }
 
-    for i in range(n):
-        t = i + 1
-        # w_arima 從 ~1 衰減至 ~0（k=0.20, midpoint=13）
-        k, midpoint = 0.20, 13.0
-        w_arima = 1.0 / (1.0 + math.exp(k * (t - midpoint)))
-        w_floor  = 1.0 - w_arima
 
-        raw = forecast[i]
-        damped_val = max(raw * w_arima + floor * w_floor, floor)
+def _fit_ets(series, steps):
+    """
+    ETS（指數平滑狀態空間模型）
+    Hyndman & Khandakar (2008) 自動選擇 error/trend/season 組合
+    statsmodels ETSModel：information_criterion='aic' 自動選最佳
+    """
+    try:
+        from statsmodels.tsa.exponential_smoothing.ets import ETSModel
+        best_aic, best_result = np.inf, None
+        # 論文常用組合：加法誤差 × (無趨勢/加法趨勢/加法阻尼趨勢)
+        for error in ['add']:
+            for trend in [None, 'add']:
+                for damped in ([False] if trend is None else [False, True]):
+                    try:
+                        m = ETSModel(series, error=error, trend=trend,
+                                     damped_trend=damped, seasonal=None).fit(
+                            disp=False, maxiter=200)
+                        if m.aic < best_aic:
+                            best_aic = m.aic; best_result = m
+                    except Exception:
+                        continue
+        if best_result is None:
+            raise ValueError("ETS 全組合失敗")
+        fc_obj = best_result.get_forecast(steps)
+        fc_mu  = fc_obj.predicted_mean.values
+        fc_ci  = fc_obj.conf_int(alpha=0.05).values
+        # ETS 預測值不可為負（確保正值）
+        fc_mu = np.maximum(fc_mu, series[-1] * 0.05)
+        fc_up = np.maximum(fc_ci[:, 1], fc_mu)
+        fc_lo = np.maximum(fc_ci[:, 0], series[-1] * 0.02)
+        in_sample = best_result.fittedvalues
+        return {
+            "forecast": [round(float(v), 2) for v in fc_mu],
+            "upper95":  [round(float(v), 2) for v in fc_up],
+            "lower95":  [round(float(v), 2) for v in fc_lo],
+            "sigma":    round(float(np.std(best_result.resid)), 4),
+            "aic":      round(float(best_aic), 4),
+            "model_obj": best_result,
+            "in_sample": in_sample,
+            "ets_spec":  f"ETS({best_result.model.error_type},{best_result.model.trend_type or 'N'},N)"
+                         + (" damped" if getattr(best_result.model, 'damped_trend', False) else ""),
+        }
+    except Exception as e:
+        raise RuntimeError(f"ETS 失敗：{e}")
 
-        raw_width_up = upper95[i] - raw
-        raw_width_lo = raw - lower95[i]
-        damped_up.append(round(damped_val + raw_width_up * w_arima, 2))
-        damped_lo.append(round(max(damped_val - raw_width_lo * w_arima, floor * 0.85), 2))
-        damped_fc.append(round(damped_val, 2))
 
-    return damped_fc, damped_up, damped_lo
+def _model_validation(series, in_sample, model_obj=None, model_type="arima"):
+    """
+    樣本內驗證指標（論文必備）：
+      MAPE, RMSE, MAE, R²
+      Ljung-Box Q 統計量（lag=10）殘差白噪音檢定
+    文獻：
+      Ljung & Box (1978) Biometrika
+      Hyndman & Koehler (2006) IJF — MAPE/MAE/RMSE 定義
+    """
+    from scipy import stats as sp_stats
+    y    = series.astype(float)
+    yhat = np.array(in_sample, dtype=float)
+    # 對齊長度（ETS fittedvalues 有時 index 偏移）
+    min_n = min(len(y), len(yhat))
+    y, yhat = y[-min_n:], yhat[-min_n:]
+    resid  = y - yhat
+    ss_res = np.sum(resid ** 2)
+    ss_tot = np.sum((y - np.mean(y)) ** 2)
+    # 避免除以零
+    nonzero = y != 0
+    mape = float(np.mean(np.abs(resid[nonzero] / y[nonzero])) * 100) if nonzero.any() else None
+    rmse = float(np.sqrt(np.mean(resid ** 2)))
+    mae  = float(np.mean(np.abs(resid)))
+    r2   = float(1 - ss_res / ss_tot) if ss_tot > 0 else None
+
+    # Ljung-Box（lag 建議 min(10, n//5)）
+    lb_lag = max(1, min(10, len(resid) // 5))
+    try:
+        lb = sm.stats.acorr_ljungbox(resid, lags=[lb_lag], return_df=True)
+        lb_stat = float(lb["lb_stat"].iloc[0])
+        lb_pval = float(lb["lb_pvalue"].iloc[0])
+        lb_pass = lb_pval > 0.05   # True = 殘差為白噪音（好）
+    except Exception:
+        lb_stat, lb_pval, lb_pass = None, None, None
+
+    return {
+        "mape":    round(mape, 4) if mape is not None else None,
+        "rmse":    round(rmse, 2),
+        "mae":     round(mae,  2),
+        "r2":      round(r2,   4) if r2 is not None else None,
+        "lb_stat": round(lb_stat, 4) if lb_stat is not None else None,
+        "lb_pval": round(lb_pval, 4) if lb_pval is not None else None,
+        "lb_pass": lb_pass,
+        "lb_lag":  lb_lag,
+        "n":       len(y),
+    }
+
+
+def select_best_model(series, order, steps):
+    """
+    主要入口：log-ARIMA 與 ETS 並跑，AIC 選最佳
+    回傳：
+      forecast, upper95, lower95, sigma,
+      best_model ('log_arima' | 'ets'),
+      model_aic, ets_aic, arima_aic,
+      validation (MAPE/RMSE/MAE/R²/Ljung-Box),
+      ets_spec
+    """
+    results = {}
+    errors  = {}
+
+    # ── log-ARIMA ──
+    try:
+        results['log_arima'] = _fit_log_arima(series, order, steps)
+    except Exception as e:
+        errors['log_arima'] = str(e)
+
+    # ── ETS ──
+    try:
+        results['ets'] = _fit_ets(series, steps)
+    except Exception as e:
+        errors['ets'] = str(e)
+
+    if not results:
+        # 兩者均失敗 → fallback 原始 ARIMA（無 log）
+        return arima_forecast(series, order, steps)
+
+    # ── AIC 選最佳 ──
+    best_key = min(results, key=lambda k: results[k]['aic'])
+    best     = results[best_key]
+
+    # ── 驗證指標 ──
+    in_s = best.get('in_sample', None)
+    if in_s is not None:
+        val = _model_validation(series, in_s, best.get('model_obj'), best_key)
+    else:
+        val = {}
+
+    arima_aic = results['log_arima']['aic'] if 'log_arima' in results else None
+    ets_aic   = results['ets']['aic']       if 'ets'       in results else None
+    ets_spec  = results['ets'].get('ets_spec', 'ETS') if 'ets' in results else None
+
+    return {
+        "forecast":     best['forecast'],
+        "upper95":      best['upper95'],
+        "lower95":      best['lower95'],
+        "sigma":        best['sigma'],
+        "best_model":   best_key,
+        "model_aic":    best['aic'],
+        "arima_aic":    arima_aic,
+        "ets_aic":      ets_aic,
+        "ets_spec":     ets_spec,
+        "validation":   val,
+        "fit_errors":   errors if errors else None,
+    }
+
 
 # ── AD-EF 情境計算 ──────────────────────────────────────
 def adef_scenarios(base_val, steps, params):
     """
-    三情境 AD-EF 預測（重構版）
-    
-    設計邏輯：
-    - 情境本身有「內建基礎減排率」，不依賴滑桿即可產生差異
-    - 滑桿是「額外外生變數」，在基礎率上疊加
-    - 全 0 時三條線仍有差距，反映各情境的政策力道不同
-    
-    情境基礎年淨變化率（無論滑桿值如何）：
-      BAU:    +0.5%/年（微幅自然成長）
-      積極政策: -1.0%/年（積極節能）
-      NDC:    -2.5%/年（達標所需）
-    
-    滑桿額外貢獻（疊加在基礎率上）：
-      AD 驅動增加：gdp × elasticity + pop × 0.35
-      EF 效率減少：eff + re × 0.012
+    三情境 AD-EF 預測（論文版）
+    ─────────────────────────────────────────────────────
+    情境基礎減排率來源（可引用）：
+      BAU：台灣 2005–2019 歷史年均排放成長率約 +0.4%
+           來源：環境部溫室氣體排放清冊（2024 版），
+                 國發會 2022 年淨零排放路徑（背景假設）
+      積極政策：台灣 2030 NDC 目標相對 2005 年減 24±1%，
+               折年率約 -1.6%（自 2023 年起計算至 2030）
+               來源：Taiwan NDC Update (2022), UNFCCC Submission
+      NDC 淨零：2050 淨零目標折年率約 -4.5%（自 2023 年起）
+               來源：台灣 2050 淨零排放路徑，國發會 (2022)；
+                     IPCC AR6 WG3 Ch.3 C1 情境
+
+    AD-EF 框架文獻：
+      Kaya (1990) Impact of Carbon Dioxide Emission on GNP Growth;
+      Ang & Zhang (2000) Energy Policy — Kaya 分解架構
+      Rosa & Dietz (2012) Nature Climate Change — STIRPAT 延伸
+
+    外生滑桿（使用者可調）疊加在基礎率上：
+      AD 驅動：Δemission ≈ gdp × elasticity + pop × 0.35
+      EF 效率：Δemission ≈ -(eff + re × 0.012)
+    ─────────────────────────────────────────────────────
     """
     gdp = params.get("gdp", 0.0)
     pop = params.get("pop", 0.0)
@@ -353,26 +524,48 @@ def adef_scenarios(base_val, steps, params):
     re  = params.get("re",  0.0)
     ela = params.get("elasticity", 0.0)
 
-    # 外生變數貢獻（滑桿）
-    exog_ad = gdp * ela + pop * 0.35   # 需求端成長
-    exog_ef = eff + re * 0.012          # 效率端下降
+    exog_ad = gdp * ela + pop * 0.35
+    exog_ef = eff + re * 0.012
 
     scenarios = {
-        "bau":    {"base_rate": +0.005, "label":"基準情境 (BAU)",  "color":"#f59e0b"},
-        "policy": {"base_rate": -0.010, "label":"積極政策情境",     "color":"#38bdf8"},
-        "ndc":    {"base_rate": -0.025, "label":"NDC 目標情境",     "color":"#00e5c0"},
+        # base_rate 來源見 docstring；citation_key 供前端顯示引用
+        "bau": {
+            "base_rate": +0.004,   # 台灣 2005-2019 歷史均值 +0.4%/yr
+            "label":     "基準情境 BAU",
+            "color":     "#f59e0b",
+            "citation":  "環境部排放清冊 (2024)；國發會淨零路徑 (2022)",
+            "rate_note": "+0.4%/yr（歷史趨勢延伸）",
+        },
+        "policy": {
+            "base_rate": -0.016,   # NDC 2030 目標 -24% vs 2005，折年率
+            "label":     "積極政策情境（NDC 2030）",
+            "color":     "#38bdf8",
+            "citation":  "Taiwan NDC Update (2022), UNFCCC Submission",
+            "rate_note": "-1.6%/yr（NDC 2030 折年率）",
+        },
+        "ndc": {
+            "base_rate": -0.045,   # 2050 淨零目標折年率
+            "label":     "NDC 淨零情境（2050）",
+            "color":     "#00e5c0",
+            "citation":  "台灣 2050 淨零排放路徑 (2022)；IPCC AR6 WG3 C1",
+            "rate_note": "-4.5%/yr（2050 淨零折年率）",
+        },
     }
     result = {}
     for key, sc in scenarios.items():
-        # 情境淨變化率 = 情境基礎率 + 外生AD貢獻 - 外生EF貢獻
         net_rate = sc["base_rate"] + exog_ad - exog_ef
-        vals = []
-        v = base_val
+        vals = []; v = base_val
         for _ in range(steps):
-            v = v * (1 + net_rate)
+            v = max(v * (1 + net_rate), 0.0)   # 不允許負排放
             vals.append(round(v, 2))
-        result[key] = {"values": vals,
-                       "label": sc["label"], "color": sc["color"]}
+        result[key] = {
+            "values":    vals,
+            "label":     sc["label"],
+            "color":     sc["color"],
+            "citation":  sc["citation"],
+            "rate_note": sc["rate_note"],
+            "net_rate":  round(net_rate * 100, 3),   # % 供前端顯示
+        }
     return result
 
 
@@ -517,14 +710,8 @@ def analyze():
     if steps<=0: return safe_json({"error":f"資料已涵蓋至 {ly} 年"},400)
 
     orr=select_arima_order(ts); p,d,q=orr['p'],orr['d'],orr['q']
-    fc=arima_forecast(ts,(p,d,q),steps); fy=list(range(ly+1,2051))
-
-    # ── S型收歛修正：防止長期外推出現負值 ──
-    last_obs = float(ts[-1])
-    fc['forecast'], fc['upper95'], fc['lower95'] = apply_sigmoid_damping(
-        fc['forecast'], fc['upper95'], fc['lower95'],
-        last_val=last_obs, floor_ratio=0.60
-    )
+    fc=select_best_model(ts,(p,d,q),steps)   # log-ARIMA vs ETS，AIC 自動選最佳
+    fy=list(range(ly+1,2051))
 
     # AD-EF 三情境
     params=_get_adef_params(request)
@@ -544,10 +731,42 @@ def analyze():
                         "lower95":[round(float(v),2) for v in g['lower95']]}
                 except: pass
 
+    # ── 部門分解 ARIMA（能源/工業/農業/廢棄物）──
+    SECTORS = {
+        'energy':   {'label':'能源部門',    'color':'#f97316'},
+        'industry': {'label':'工業製程',    'color':'#a78bfa'},
+        'agri':     {'label':'農業部門',    'color':'#4ade80'},
+        'waste':    {'label':'廢棄物部門',  'color':'#fb923c'},
+    }
+    sector_results = {}
+    sector_sum_hist = None   # 有資料的部門歷史加總（用來計算「其他」）
+    for scol, smeta in SECTORS.items():
+        if scol not in dfc.columns or dfc[scol].isna().all():
+            continue
+        sv = dfc[scol].dropna().values.astype(float)
+        if len(sv) < 5:
+            continue
+        try:
+            # 部門用較低階模型避免過擬合（小樣本保護）
+            sp_ord = min(p, 1)
+            sg = select_best_model(sv, (sp_ord, d, 0), steps)
+            # 部門也用 log-ARIMA 自然防負值（透過 select_best_model 已處理）
+            sector_results[scol] = {
+                'label':   smeta['label'],
+                'color':   smeta['color'],
+                'history': [round(float(v), 2) for v in sv],
+                'hist_years': [int(dfc.loc[dfc[scol].notna(), 'year'].values[i]) for i in range(len(sv))],
+                'forecast': [round(float(v), 2) for v in sg['forecast']],
+                'upper95':  [round(float(v), 2) for v in sg['upper95']],
+                'lower95':  [round(float(v), 2) for v in sg['lower95']],
+            }
+        except Exception:
+            pass
+
     hist_tbl=[]
     for _,row in dfc.iterrows():
         r={"year":int(row['year'])}
-        for c in ['energy','industry','agri','land','total','net','co2','ch4','n2o','hfc','pfc','sf6','nf3']:
+        for c in ['energy','industry','agri','waste','land','total','net','co2','ch4','n2o','hfc','pfc','sf6','nf3']:
             v=row.get(c,None); r[c]=round(float(v),2) if v is not None and pd.notna(v) else None
         hist_tbl.append(r)
 
@@ -580,7 +799,7 @@ def analyze():
             "lower95": round(fc['lower95'][i], 2),
             "land": fc_land_i,
             "net":  fc_net,
-            **{c: None for c in ['energy','industry','agri','co2','ch4','n2o']}
+            **{c: None for c in ['energy','industry','agri','waste','co2','ch4','n2o']}
         })
 
     return safe_json({"status":"ok","hist_years":hy,"hist_total":[round(float(v),2) for v in ts],
@@ -591,7 +810,10 @@ def analyze():
         "arima_explanation":orr['explanation'],"aic_table":orr['aic_table'],
         "adf_result":orr['adf'],"sample_size":orr['sample_size'],"warning":orr['warning'],
         "fc_net":[r["net"] for r in fc_tbl],"fc_land_series":[r["land"] for r in fc_tbl],"fc_land_slope":round(float(slope),2) if slope is not None else None,
-        "gas_results":gas_results,"history_table":hist_tbl,"forecast_table":fc_tbl,
+        "sector_results":sector_results,"gas_results":gas_results,"history_table":hist_tbl,"forecast_table":fc_tbl,
+        "model_info":{"best_model":fc.get('best_model'),"arima_order":{"p":p,"d":d,"q":q},
+            "arima_aic":fc.get('arima_aic'),"ets_aic":fc.get('ets_aic'),"model_aic":fc.get('model_aic'),
+            "ets_spec":fc.get('ets_spec'),"validation":fc.get('validation'),"fit_errors":fc.get('fit_errors')},
         "diagnostics":compute_diagnostics(ts,(p,d,q)),
         "scenarios":scenarios})
 

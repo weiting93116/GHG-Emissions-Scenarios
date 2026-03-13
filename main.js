@@ -535,6 +535,68 @@ function render(d){
         callbacks:{label:(ctx)=>`${ctx.label}: ${Number(ctx.parsed).toLocaleString('zh-TW',{maximumFractionDigits:1})} kt (${(ctx.parsed/pfl.dt.reduce((a,b)=>a+b,0)*100).toFixed(1)}%)`}}
     }}});
 
+  // ── Sector decomposition charts ──
+  const sr = d.sector_results || {};
+  const sectorKeys = Object.keys(sr);
+  if(sectorKeys.length > 0){
+    document.getElementById('sectorCard').style.display = '';
+    document.getElementById('sectorIndGrid').style.display = '';
+
+    // ── 堆疊面積圖（所有部門疊在一起）──
+    const stackDatasets = sectorKeys.map(k => {
+      const s = sr[k];
+      const histPad  = [...s.history, ...Array(fLen).fill(null)];
+      const fcPad    = [...Array(hLen).fill(null), ...s.forecast];
+      return [
+        {label: s.label+'（歷史）', data: histPad, borderColor: s.color,
+         backgroundColor: s.color+'33', borderWidth:2, pointRadius:0, tension:0.3, fill:true},
+        {label: s.label+'（預測）', data: fcPad,   borderColor: s.color,
+         backgroundColor: s.color+'22', borderWidth:1.5, borderDash:[5,3], pointRadius:0, tension:0.3, fill:true},
+      ];
+    }).flat();
+
+    mk('cSectorStack', {type:'line', data:{labels:allY, datasets:stackDatasets},
+      options:{...lopts('kt CO₂e', 2.0), plugins:{
+        ...lopts('kt CO₂e', 2.0).plugins,
+        legend:{display:true, labels:{color:'#4a6070', font:{size:10}, boxWidth:12,
+          filter: item => item.text.includes('歷史')  // 只顯示歷史圖例，避免重複
+        }},
+      }}
+    });
+
+    // ── 各部門獨立圖 ──
+    const SECTOR_CANVAS = {energy:'cEnergy', industry:'cIndustry', agri:'cAgri', waste:'cWaste'};
+    sectorKeys.forEach(k => {
+      const cid = SECTOR_CANVAS[k]; if(!cid) return;
+      const s = sr[k];
+      const histPad = [...s.history, ...Array(fLen).fill(null)];
+      const fcPad   = [...Array(hLen).fill(null), ...s.forecast];
+      const upPad   = [...Array(hLen).fill(null), ...s.upper95];
+      const loPad   = [...Array(hLen).fill(null), ...s.lower95];
+      mk(cid, {type:'line', data:{labels:allY, datasets:[
+        {data:upPad, borderColor:'transparent', backgroundColor:s.color+'18', fill:'+1', pointRadius:0, label:'上界'},
+        {data:loPad, borderColor:'transparent', fill:false, pointRadius:0, label:'下界'},
+        {label:s.label+'（歷史）', data:histPad, borderColor:s.color, borderWidth:2,   pointRadius:0, tension:0.3, fill:false},
+        {label:s.label+'（預測）', data:fcPad,   borderColor:s.color, borderWidth:1.5, borderDash:[5,3], pointRadius:0, tension:0.3, fill:false,
+         datalabels:{
+           display:(ctx)=>{
+             if(ctx.datasetIndex!==3) return false;
+             const v=ctx.dataset.data[ctx.dataIndex]; if(v==null) return false;
+             const yr=parseInt(ctx.chart.data.labels?.[ctx.dataIndex]);
+             return !isNaN(yr)&&(yr%5===0||ctx.dataIndex===ctx.dataset.data.length-1);
+           },
+           formatter:(v)=>v==null?'':(Math.abs(v)>=1000?(v/1000).toFixed(1)+'k':Number(v).toFixed(0)),
+           color: s.color, font:{size:9,weight:'bold'}, anchor:'end', align:'top', offset:2,
+           backgroundColor:'rgba(13,17,23,0.7)', borderRadius:3, padding:{top:2,bottom:2,left:3,right:3}, clip:true,
+         }
+        },
+      ]}, options:{...lopts('kt CO₂e',1.6), plugins:{
+        ...lopts('kt CO₂e',1.6).plugins,
+        legend:{display:false},
+      }}});
+    });
+  }
+
   // ── Gas charts ──
   [['cCO2','co2','#60a5fa','CO₂'],['cCH4','ch4','#34d399','CH₄'],['cN2O','n2o','#f472b6','N₂O']].forEach(([id,key,col,gasLabel])=>{
     const g=d.gas_results?.[key];
@@ -717,6 +779,154 @@ function render(d){
 
   updateForecastTable(d, sc);
   document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+
+// ════════════════════════════════════════════════════════
+// ── 模型驗證 + 情境引用 + 預測數字表（論文版）─────────
+// ════════════════════════════════════════════════════════
+
+function renderValidation(d) {
+  const mi = d.model_info || {};
+  const val = mi.validation || {};
+  const sc  = d.scenarios || {};
+
+  // ── 左卡：模型比較與驗證指標 ──
+  const bestLabel = mi.best_model === 'log_arima'
+    ? `log-ARIMA(${mi.arima_order?.p},${mi.arima_order?.d},${mi.arima_order?.q})`
+    : (mi.ets_spec || 'ETS');
+  const arima_label = `log-ARIMA(${mi.arima_order?.p},${mi.arima_order?.d},${mi.arima_order?.q})`;
+
+  const lbColor  = val.lb_pass === true ? '#4ade80' : val.lb_pass === false ? '#f87171' : '#94a3b8';
+  const lbText   = val.lb_pass === true ? '✓ 通過（殘差為白噪音）' : val.lb_pass === false ? '✗ 未通過（存在自相關）' : '—';
+  const mapeColor = val.mape != null ? (val.mape < 5 ? '#4ade80' : val.mape < 10 ? '#fbbf24' : '#f87171') : '#94a3b8';
+
+  document.getElementById('modelValidCard').style.display='';
+  document.getElementById('modelValidBody').innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="border-bottom:1px solid #1e293b">
+        <th style="text-align:left;color:#64748b;padding:4px 8px;font-weight:400">指標</th>
+        <th style="text-align:right;color:#64748b;padding:4px 8px;font-weight:400">${arima_label}</th>
+        <th style="text-align:right;color:#64748b;padding:4px 8px;font-weight:400">${mi.ets_spec||'ETS'}</th>
+        <th style="text-align:right;color:#a78bfa;padding:4px 8px;font-weight:600">✓ 選用</th>
+      </tr>
+      <tr>
+        <td style="padding:4px 8px;color:#94a3b8">AIC</td>
+        <td style="text-align:right;padding:4px 8px">${mi.arima_aic!=null?mi.arima_aic.toFixed(2):'—'}</td>
+        <td style="text-align:right;padding:4px 8px">${mi.ets_aic!=null?mi.ets_aic.toFixed(2):'—'}</td>
+        <td style="text-align:right;padding:4px 8px;color:#a78bfa;font-weight:600">${mi.model_aic!=null?mi.model_aic.toFixed(2):'—'}</td>
+      </tr>
+      <tr style="background:#0a0e17">
+        <td style="padding:4px 8px;color:#94a3b8">MAPE (%)</td>
+        <td colspan="2" style="text-align:right;padding:4px 8px">樣本內回測</td>
+        <td style="text-align:right;padding:4px 8px;color:${mapeColor};font-weight:600">${val.mape!=null?val.mape.toFixed(2)+'%':'—'}</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 8px;color:#94a3b8">RMSE (kt)</td>
+        <td colspan="2"></td>
+        <td style="text-align:right;padding:4px 8px">${val.rmse!=null?Number(val.rmse).toLocaleString():'—'}</td>
+      </tr>
+      <tr style="background:#0a0e17">
+        <td style="padding:4px 8px;color:#94a3b8">MAE (kt)</td>
+        <td colspan="2"></td>
+        <td style="text-align:right;padding:4px 8px">${val.mae!=null?Number(val.mae).toLocaleString():'—'}</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 8px;color:#94a3b8">R²</td>
+        <td colspan="2"></td>
+        <td style="text-align:right;padding:4px 8px">${val.r2!=null?val.r2.toFixed(4):'—'}</td>
+      </tr>
+      <tr style="background:#0a0e17">
+        <td style="padding:4px 8px;color:#94a3b8">Ljung-Box Q(${val.lb_lag||10})</td>
+        <td colspan="2" style="text-align:right;padding:4px 8px">${val.lb_stat!=null?val.lb_stat.toFixed(3):'—'}</td>
+        <td style="text-align:right;padding:4px 8px;color:${lbColor};font-weight:600">${lbText}</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 8px;color:#94a3b8">p-value</td>
+        <td colspan="2"></td>
+        <td style="text-align:right;padding:4px 8px">${val.lb_pval!=null?val.lb_pval.toFixed(4):'—'}</td>
+      </tr>
+    </table>
+    <div style="margin-top:8px;font-size:10.5px;color:#475569;line-height:1.6">
+      ✦ AIC 最小者為最佳模型（Akaike, 1974）<br>
+      ✦ MAPE < 5% 優秀；5–10% 良好；>10% 需留意（Hyndman & Koehler, 2006）<br>
+      ✦ Ljung-Box p > 0.05 表示殘差無自相關，模型充分（Ljung &amp; Box, 1978）<br>
+      ✦ log-ARIMA 文獻：Box &amp; Jenkins (1976)；ETS：Hyndman &amp; Khandakar (2008, JSS)
+    </div>`;
+
+  // ── 右卡：情境引用來源 ──
+  const citRows = Object.entries(sc).map(([k,s]) => `
+    <tr style="${k!=='bau'?'border-top:1px solid #1e293b':''}">
+      <td style="padding:5px 8px;color:${s.color};font-weight:600">${s.label}</td>
+      <td style="padding:5px 8px;text-align:right;color:#e2e8f0">${s.rate_note||'—'}</td>
+    </tr>
+    <tr style="background:#0a0e17">
+      <td colspan="2" style="padding:2px 8px 6px;color:#475569;font-size:10.5px">
+        引用：${s.citation||'—'}
+      </td>
+    </tr>`).join('');
+
+  document.getElementById('scenarioCitCard').style.display='';
+  document.getElementById('scenarioCitBody').innerHTML = `
+    <table style="width:100%;border-collapse:collapse">${citRows}</table>
+    <div style="margin-top:8px;font-size:10.5px;color:#475569;line-height:1.6">
+      ✦ AD 活動量框架：Kaya (1990)；Ang &amp; Zhang (2000) Energy Policy<br>
+      ✦ 情境折年率依官方文件線性折算，供論文方法論說明使用
+    </div>`;
+
+  document.getElementById('validationSection').style.display='';
+}
+
+function renderFcTable(d, sc) {
+  const fy = d.fc_years || [];
+  const keyYears = new Set([2030, 2035, 2040, 2045, 2050]);
+
+  // 表頭
+  document.getElementById('fcTableHead').innerHTML = `<tr>
+    <th style="text-align:center">年份</th>
+    <th>點估計 (kt)</th><th>上界 95%</th><th>下界 95%</th>
+    <th style="color:#f59e0b">BAU</th>
+    <th style="color:#38bdf8">積極政策</th>
+    <th style="color:#00e5c0">NDC 淨零</th>
+  </tr>`;
+
+  // 表身
+  const rows = fy.map((yr, i) => {
+    const isKey = keyYears.has(yr);
+    const cls   = isKey ? 'hi-row' : '';
+    const fc    = d.fc_total[i]; const up = d.fc_upper[i]; const lo = d.fc_lower[i];
+    const bau   = sc?.bau?.values?.[i];
+    const pol   = sc?.policy?.values?.[i];
+    const ndc   = sc?.ndc?.values?.[i];
+    const fmt2  = v => v!=null ? Number(v).toLocaleString('zh-TW',{maximumFractionDigits:0}) : '—';
+    return `<tr class="${cls}">
+      <td>${yr}${isKey?'<span style="color:#a78bfa;margin-left:4px">★</span>':''}</td>
+      <td>${fmt2(fc)}</td><td style="color:#475569">${fmt2(up)}</td><td style="color:#475569">${fmt2(lo)}</td>
+      <td style="color:#f59e0b">${fmt2(bau)}</td>
+      <td style="color:#38bdf8">${fmt2(pol)}</td>
+      <td style="color:#00e5c0">${fmt2(ndc)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('fcTableBody').innerHTML = rows;
+  document.getElementById('fcTableCard').style.display='';
+}
+
+// CSV 匯出
+function exportFcTableCsv() {
+  if(!analysisData) return;
+  const d = analysisData; const sc = d.scenarios||{};
+  const rows = [['年份','點估計(kt)','上界95%','下界95%','BAU','積極政策','NDC淨零']];
+  (d.fc_years||[]).forEach((yr,i) => {
+    rows.push([yr,
+      d.fc_total?.[i]??'', d.fc_upper?.[i]??'', d.fc_lower?.[i]??'',
+      sc.bau?.values?.[i]??'', sc.policy?.values?.[i]??'', sc.ndc?.values?.[i]??''
+    ]);
+  });
+  const csv = rows.map(r=>r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = 'GHG_forecast.csv'; a.click();
 }
 
 function updateForecastTable(d, sc){
