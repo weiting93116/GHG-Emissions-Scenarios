@@ -67,10 +67,6 @@ def preflight_columns():  return _cors_preflight_response()
 @app.route('/api/scenarios',methods=['OPTIONS'])
 def preflight_scenarios(): return _cors_preflight_response()
 
-@app.route('/health')
-def health():
-    return safe_json({"status": "ok", "allowed_origins": _allowed_list if not _allow_all else "*"})
-
 # ── JSON 工具 ───────────────────────────────────────────
 def nan_to_none(obj):
     if isinstance(obj, dict):   return {k: nan_to_none(v) for k, v in obj.items()}
@@ -1428,8 +1424,8 @@ def scenarios_only():
                       "sigma_data": round(sigma_data*100, 3)})
 
 @app.route('/api/health')
-def health():
-    return safe_json({"status":"running","message":"GHG Forecast v3"})
+def api_health():
+    return safe_json({"status":"running","allowed_origins": _allowed_list if not _allow_all else "*"})
 
 if __name__=='__main__':
     import os
