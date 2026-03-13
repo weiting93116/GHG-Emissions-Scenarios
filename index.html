@@ -173,12 +173,12 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 @media(max-width:960px){.chart-grid-main,.chart-grid-3{grid-template-columns:1fr}.chart-grid-2{grid-template-columns:1fr}.param-cards{grid-template-columns:1fr}}
 @media(max-width:600px){.stats-row{grid-template-columns:repeat(2,1fr)}header{flex-direction:column}}
 
-  #fcTable th{position:sticky;top:0;background:#0d1117;color:#e2e8f0;padding:5px 10px;text-align:right;border-bottom:1px solid #1e293b;white-space:nowrap}
-  #fcTable th:first-child{text-align:center}
-  #fcTable td{padding:4px 10px;text-align:right;border-bottom:1px solid #0f1923;white-space:nowrap}
-  #fcTable td:first-child{text-align:center;color:#64748b}
-  #fcTable tr:hover td{background:#111827}
-  #fcTable .hi-row td{color:#e2e8f0;font-weight:600;background:#111827}
+#fcTable th{position:sticky;top:0;background:#0d1117;color:#e2e8f0;padding:5px 10px;text-align:right;border-bottom:1px solid #1e293b;white-space:nowrap}
+#fcTable th:first-child{text-align:center}
+#fcTable td{padding:4px 10px;text-align:right;border-bottom:1px solid #0f1923;white-space:nowrap}
+#fcTable td:first-child{text-align:center;color:#64748b}
+#fcTable tr:hover td{background:#111827}
+#fcTable .hi-row td{color:#e2e8f0;font-weight:600;background:#111827}
 </style>
 </head>
 <body>
@@ -241,38 +241,38 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     <div class="slider-group">
       <label>GDP 年成長率（%）</label>
       <input type="range" id="slGdp" min="-1" max="8" step="0.1" value="0">
-      <div class="slider-val" id="vGdp">+2.5%</div>
+      <div class="slider-val" id="vGdp">+0.0%</div>
     </div>
     <div class="slider-group">
       <label>GDP 彈性係數（排放對GDP敏感度）</label>
-      <input type="range" id="slEla" min="0"   max="1.0" step="0.05" value="0">
-      <div class="slider-val" id="vEla">0.65</div>
+      <input type="range" id="slEla" min="0" max="1.0" step="0.05" value="0">
+      <div class="slider-val" id="vEla">0.00</div>
     </div>
     <div class="slider-group">
       <label>人口成長率（%）</label>
       <input type="range" id="slPop" min="-1" max="3" step="0.1" value="0">
-      <div class="slider-val" id="vPop">+0.3%</div>
+      <div class="slider-val" id="vPop">+0.0%</div>
     </div>
     <div class="slider-group">
       <label>能源效率年改善率（%）</label>
       <input type="range" id="slEff" min="0" max="5" step="0.1" value="0">
-      <div class="slider-val" id="vEff">1.5%</div>
+      <div class="slider-val" id="vEff">0.0%</div>
     </div>
     <div class="slider-group">
       <label>再生能源目標滲透率（%）</label>
-      <input type="range" id="slRe" min="0"  max="80" step="1" value="0">
-      <div class="slider-val" id="vRe">30%</div>
+      <input type="range" id="slRe" min="0" max="80" step="1" value="0">
+      <div class="slider-val" id="vRe">0%</div>
     </div>
   </div>
   <div class="scenario-legend">
-    <div class="sc-item"><div class="sc-dot" style="background:#f59e0b"></div><span style="color:#f59e0b">基準情境 BAU</span>（AD-EF 不調整）</div>
-    <div class="sc-item"><div class="sc-dot" style="background:#38bdf8"></div><span style="color:#38bdf8">積極政策情境</span>（AD 需求降10%，EF 改善×1.4）</div>
-    <div class="sc-item"><div class="sc-dot" style="background:#00e5c0"></div><span style="color:#00e5c0">NDC 目標情境</span>（AD 需求降20%，EF 改善×1.8）</div>
+    <div class="sc-item"><div class="sc-dot" style="background:#f59e0b"></div><span style="color:#f59e0b">基準情境 BAU</span></div>
+    <div class="sc-item"><div class="sc-dot" style="background:#38bdf8"></div><span style="color:#38bdf8">積極政策情境</span></div>
+    <div class="sc-item"><div class="sc-dot" style="background:#00e5c0"></div><span style="color:#00e5c0">NDC 目標情境</span></div>
   </div>
   <div style="margin-top:12px;padding:10px 14px;background:var(--ink3);border-radius:5px;font-size:11px;color:var(--dim);line-height:1.7">
     💡 <strong style="color:var(--mid)">統計區間 vs 情境分析說明：</strong>
-    圖表中的 <span style="color:rgba(56,189,248,.6)">■ 藍色陰影</span> 代表 ARIMA 的 <strong>統計不確定性</strong>（歷史隨機波動的95%信心區間）；
-    三條彩色曲線代表不同 <strong>政策情境</strong> 下的 AD-EF 結構預測，兩者在圖上明確區隔，互不混淆。
+    <span style="color:rgba(56,189,248,.6)">■ 藍色陰影</span> 代表 ARIMA 的 <strong>統計不確定性</strong>（95%信心區間）；
+    三條彩色曲線代表不同 <strong>政策情境</strong> 下的 AD-EF 結構預測。
   </div>
 </div>
 
@@ -321,7 +321,6 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
   </div>
 
   <!-- 統計摘要 -->
-  <!-- 匯出按鈕列 -->
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.08em">ANALYSIS RESULTS</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -355,7 +354,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
       </div>
     </div>
     <div class="card">
-      <div class="card-title"><span class="card-dot" style="background:var(--amber)"></span>2050 氣體組成比例</div>
+      <div class="card-title"><span class="card-dot" style="background:var(--amber)"></span>氣體組成比例</div>
       <canvas id="pieChart"></canvas>
     </div>
   </div>
@@ -397,22 +396,63 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     </div>
   </div>
 
-
-  <!-- 模型驗證指標 + 預測數字表格 -->
-  <div class="chart-grid-2" style="margin-bottom:14px" id="validationSection" style="display:none">
-    <!-- 左：模型比較與驗證指標 -->
-    <div class="card" id="modelValidCard">
-      <div class="card-title"><span class="card-dot" style="background:#a78bfa"></span>模型比較與統計驗證</div>
-      <div id="modelValidBody" style="font-size:12px;color:#94a3b8;line-height:1.8"></div>
+  <!-- ══════════════════════════════════════════════════════
+       ★ 新增：OOS驗證 + DM檢定 | ZA斷點 | 蒙地卡羅
+       ══════════════════════════════════════════════════════ -->
+  <div class="chart-grid-3" style="margin-bottom:14px" id="statsTripleRow">
+    <!-- OOS + DM -->
+    <div class="card" id="oosCard">
+      <div class="card-title">
+        <span class="card-dot" style="background:#4ade80"></span>
+        HOLD-OUT OOS 驗證 + DM 檢定
+      </div>
+      <div id="oosBody" style="font-size:12px;color:var(--muted)">分析中…</div>
     </div>
-    <!-- 右：情境說明與引用來源 -->
-    <div class="card" id="scenarioCitCard">
-      <div class="card-title"><span class="card-dot" style="background:#34d399"></span>AD-EF 情境參數來源</div>
-      <div id="scenarioCitBody" style="font-size:12px;color:#94a3b8;line-height:1.8"></div>
+    <!-- ZA 結構斷點 -->
+    <div class="card" id="zaCard">
+      <div class="card-title">
+        <span class="card-dot" style="background:#f472b6"></span>
+        ZIVOT-ANDREWS 結構斷點檢定
+      </div>
+      <div id="zaBody" style="font-size:12px;color:var(--muted)">分析中…</div>
+    </div>
+    <!-- 蒙地卡羅 -->
+    <div class="card" id="mcCard">
+      <div class="card-title">
+        <span class="card-dot" style="background:var(--amber)"></span>
+        蒙地卡羅情境模擬（500次）
+      </div>
+      <canvas id="cMC" height="180"></canvas>
     </div>
   </div>
 
-  <!-- 完整預測數字表格（擴充版） -->
+  <!-- 方法論段落 -->
+  <div class="card" id="methodsCard" style="margin-bottom:14px;display:none">
+    <div class="card-title" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <span><span class="card-dot" style="background:#38bdf8"></span>自動生成方法論段落（可直接貼入論文）</span>
+      <div style="display:flex;gap:8px">
+        <button class="chart-btn" id="methodsLangBtn" onclick="toggleMethodsLang()">切換英文</button>
+        <button class="chart-btn" onclick="copyMethods()">📋 複製</button>
+      </div>
+    </div>
+    <pre id="methodsText" style="white-space:pre-wrap;font-size:11px;color:var(--mid);line-height:1.7;
+      background:#0a0e17;border-radius:5px;padding:14px;max-height:400px;overflow-y:auto;
+      font-family:'JetBrains Mono',monospace"></pre>
+  </div>
+
+  <!-- 模型驗證 + 情境引用 -->
+  <div class="chart-grid-2" style="margin-bottom:14px" id="validationSection">
+    <div class="card" id="modelValidCard">
+      <div class="card-title"><span class="card-dot" style="background:#a78bfa"></span>模型比較與統計驗證</div>
+      <div id="modelValidBody" style="font-size:12px;color:var(--mid);line-height:1.8"></div>
+    </div>
+    <div class="card" id="scenarioCitCard">
+      <div class="card-title"><span class="card-dot" style="background:#34d399"></span>AD-EF 情境參數來源</div>
+      <div id="scenarioCitBody" style="font-size:12px;color:var(--mid);line-height:1.8"></div>
+    </div>
+  </div>
+
+  <!-- 完整預測數字表格 -->
   <div class="card" style="margin-bottom:14px" id="fcTableCard">
     <div class="chart-toolbar">
       <div class="card-title">
@@ -424,10 +464,9 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
       </div>
       <div class="chart-actions" style="gap:6px">
         <button class="chart-btn" id="fcToggleHist" onclick="toggleHistRows()" style="font-size:11px">顯示歷史</button>
-        <button class="chart-btn" onclick="exportFcTableCsv()" title="下載完整CSV（含歷史+預測）">↓ CSV</button>
+        <button class="chart-btn" onclick="exportFcTableCsv()" title="下載完整CSV">↓ CSV</button>
       </div>
     </div>
-    <!-- 統計摘要列 -->
     <div id="fcTableSummary" style="display:flex;gap:20px;padding:8px 4px 10px;flex-wrap:wrap"></div>
     <div style="overflow-x:auto;max-height:520px;overflow-y:auto">
       <table id="fcTable" style="width:100%;border-collapse:collapse;font-size:11.5px;color:#94a3b8">
@@ -436,14 +475,12 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
       </table>
     </div>
     <div style="margin-top:8px;font-size:10.5px;color:#475569;line-height:1.8;padding:0 2px">
-      ★ 關鍵年份（2030/2040/2050）加粗標示　｜　CI = 95% 信賴區間　｜　kt CO₂e = 千公噸二氧化碳當量
+      ★ 關鍵年份（2030/2040/2050）加粗標示　｜　CI = 95% 信賴區間　｜　kt CO₂e
     </div>
   </div>
 
-
-
   <!-- 診斷圖區塊 -->
-  <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,#1a1f2e 0%,#1e2438 60%,#1a2030 100%);border:1px solid rgba(129,140,248,.25);box-shadow:0 0 20px rgba(129,140,248,.08)">
+  <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,#1a1f2e 0%,#1e2438 60%,#1a2030 100%);border:1px solid rgba(129,140,248,.25)">
     <div class="card-title"><span class="card-dot" style="background:#818cf8"></span>差分分析（原序列 / 一階差分 / 二階差分 + ACF）</div>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
       <canvas id="diffSeriesChart" height="120"></canvas>
@@ -466,7 +503,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
   <div class="arima-panel">
     <h2>🔬 Auto-ARIMA 參數說明與選擇邏輯</h2>
     <div class="arima-order-display">
-      <span style="font-size:12px;color:var(--dim);margin-right:4px">最終選定：</span>
+      <span style="font-size:12px;color:var(--dim);margin-right:4px">選定：</span>
       <span class="ord-val" style="color:var(--teal)">ARIMA</span>
       <span style="font-family:'JetBrains Mono',monospace;font-size:20px;color:var(--teal)">( </span>
       <span class="ord-val" id="exp-p" style="color:var(--sky)">?</span>
@@ -498,7 +535,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     </div>
   </div>
 
-  <!-- 數據表 -->
+  <!-- 舊版數據表（保留相容） -->
   <div class="table-section">
     <h3>📋 歷史數據 + ARIMA 預測表（至 2050）</h3>
     <div class="tbl-wrap">
@@ -513,16 +550,16 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
       </table>
     </div>
   </div>
+
 </div><!-- /results -->
 </div><!-- /wrap -->
 
 <script>
-// 動態載入 main.js，相容 GitHub Pages 子目錄與本機開發
 (function(){
   var s = document.createElement('script');
   var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
-  var v='?v=1773387046'; s.src = isLocal ? 'main.js'+v : '/GHG-Emissions-Scenarios/main.js'+v;
-  s.onerror = function(){ console.error('main.js 載入失敗，嘗試相對路徑'); var s2=document.createElement('script'); s2.src='main.js'; document.body.appendChild(s2); };
+  var v='?v=1773412957753'; s.src = isLocal ? 'main.js'+v : '/GHG-Emissions-Scenarios/main.js'+v;
+  s.onerror = function(){ var s2=document.createElement('script'); s2.src='main.js'; document.body.appendChild(s2); };
   document.body.appendChild(s);
 })();
 </script>

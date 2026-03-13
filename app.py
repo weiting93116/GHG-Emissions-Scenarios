@@ -21,7 +21,6 @@ _allowed_list = [o.strip() for o in _raw_origins.split(',') if o.strip()]
 _allow_all    = (_raw_origins.strip() == '*') or not _allowed_list
 
 def _cors_origin(origin):
-    """回傳應填入 Access-Control-Allow-Origin 的值，None 表示不允許"""
     if not origin:
         return '*'
     if _allow_all:
@@ -44,7 +43,6 @@ def apply_cors(response):
 
 @app.before_request
 def handle_options():
-    """OPTIONS preflight：直接在 before_request 攔截回傳，不進任何路由"""
     if request.method == 'OPTIONS':
         origin = request.headers.get('Origin', '').strip()
         allowed = _cors_origin(origin)
@@ -73,13 +71,13 @@ def safe_json(data, status=200):
 @app.errorhandler(500)
 def handle_500(e):
     resp = safe_json({"error": f"伺服器錯誤：{str(e)}"}, 500)
-    return resp  # apply_cors after_request 會自動加 CORS header
+    return resp
 
 @app.errorhandler(Exception)
 def handle_exception(e):
     import traceback
     tb = traceback.format_exc()
-    print(f"UNHANDLED: {tb}")   # 印到 Render log
+    print(f"UNHANDLED: {tb}")
     resp = safe_json({"error": str(e), "trace": tb[-500:]}, 500)
     return resp
 
@@ -92,7 +90,7 @@ _IPCC_NA = frozenset([
 
 def clean_numeric(val):
     if val is None: return np.nan
-    s = str(val).strip().replace('"','').replace(' ','').replace(' ','')
+    s = str(val).strip().replace('"','').replace(' ','').replace('\u00a0','')
     if s.startswith('(') and s.endswith(')'):
         s = '-' + s[1:-1]
     s = s.replace(',','').replace('-','') if s == '-' else s.replace(',','')
@@ -155,12 +153,11 @@ try:
 except ImportError:
     PMDARIMA_AVAILABLE = False
 
-# ── Auto-ARIMA（pmdarima 優先，fallback 手工 BIC） ──────
+# ── Auto-ARIMA ──────────────────────────────────────────
 def select_arima_order(series, max_p=3, max_q=3):
     s = series[~np.isnan(series)]; n = len(s)
     adf = adf_test(s)
 
-    # ── 小樣本邊界 ──
     if n < 30:   max_p, max_q = min(max_p, 1), min(max_q, 1)
     elif n < 40: max_p, max_q = min(max_p, 2), min(max_q, 2)
 
@@ -169,16 +166,14 @@ def select_arima_order(series, max_p=3, max_q=3):
 
     if PMDARIMA_AVAILABLE:
         try:
-            # pmdarima 選出 d
             d_pm = ndiffs(s, alpha=0.05, test='adf', max_d=2)
-            # stepwise=True 速度快；information_criterion='bic' 對小樣本更嚴格
             model = _pm_auto_arima(
                 s,
                 start_p=0, max_p=max_p,
                 start_q=0, max_q=max_q,
-                d=d_pm,            # 固定 d，避免 pmdarima 自行重算造成衝突
+                d=d_pm,
                 seasonal=False,
-                information_criterion='bic',   # 小樣本用 BIC 懲罰
+                information_criterion='bic',
                 stepwise=True,
                 error_action='ignore',
                 suppress_warnings=True,
@@ -186,14 +181,11 @@ def select_arima_order(series, max_p=3, max_q=3):
             )
             best_p, best_d, best_q = model.order
             best_bic = model.bic()
-
-            # 回填完整 AIC table（對所有候選組合計算 BIC）
             tbl = _build_aic_table(s, best_d, max_p, max_q, n)
-
             if n < 35 and best_p + best_q > 2:
                 warning = (f"⚠️ 樣本數僅 {n} 筆，pmdarima 選出 ARIMA({best_p},{best_d},{best_q})，"
-                           f"已採用 BIC 準則（比 AIC 對額外參數懲罰更重）抑制過擬合")
-            adf["recommended_d"] = best_d  # 以 pmdarima 的 ndiffs 為準更新
+                           f"已採用 BIC 準則抑制過擬合")
+            adf["recommended_d"] = best_d
             exp = build_exp(best_p, best_d, best_q, adf, n, method="pmdarima·BIC")
             return {"p": best_p, "d": best_d, "q": best_q,
                     "aic": round(best_bic, 2), "adf": adf,
@@ -201,11 +193,10 @@ def select_arima_order(series, max_p=3, max_q=3):
                     "aic_table": tbl, "sample_size": n,
                     "engine": "pmdarima"}
         except Exception as e:
-            # pmdarima 失敗時 fallback
             warning = f"⚠️ pmdarima 執行失敗（{str(e)[:60]}），已切換至手工 BIC 選階"
             method = "fallback·BIC"
 
-    # ── Fallback：手工 BIC-like 窮舉 ──
+    # ── Fallback ──
     d = adf["recommended_d"]
     sd = s.copy().astype(float)
     for _ in range(d): sd = np.diff(sd)
@@ -232,7 +223,7 @@ def select_arima_order(series, max_p=3, max_q=3):
                 if score < best_aic: best_aic = score; best_p, best_q = p, q
             except: continue
     if warning is None and n < 35 and best_p + best_q > 2:
-        warning = f"⚠️ 樣本數僅 {n} 筆，已套用嚴格 BIC-like 懲罰項，限制最大階數避免過擬合"
+        warning = f"⚠️ 樣本數僅 {n} 筆，已套用嚴格 BIC-like 懲罰項"
     exp = build_exp(best_p, d, best_q, adf, n, method=method)
     return {"p": best_p, "d": d, "q": best_q, "aic": round(best_aic, 2), "adf": adf,
             "warning": warning, "explanation": exp,
@@ -241,7 +232,6 @@ def select_arima_order(series, max_p=3, max_q=3):
 
 
 def _build_aic_table(s, d, max_p, max_q, n):
-    """給 pmdarima 路徑補齊 AIC table，方便前端顯示比較"""
     sd = s.copy().astype(float)
     for _ in range(d): sd = np.diff(sd)
     tbl = []
@@ -279,16 +269,16 @@ def build_exp(p, d, q, adf, n, method="BIC"):
         3:"**q=3（MA(3)）**：衝擊效果延續三年，適合有重大政策轉折點的序列。"}
     engine_note = (
         f"\n\n> 🔬 **選階引擎：{method}**\n\n"
-        f"> 採用 **pmdarima** 套件的真實 `auto_arima`（stepwise search），以 **BIC 準則**（比 AIC 對額外參數懲罰更重）選出最佳組合，並透過 `ndiffs` 進行正式 ADF/KPSS 檢定決定 d 值。"
+        f"> 採用 **pmdarima** 套件的真實 `auto_arima`（stepwise search），以 **BIC 準則**選出最佳組合。"
         if "pmdarima" in method else
         f"\n\n> ⚙️ **選階引擎：{method}**（手工窮舉，BIC-like 懲罰項 k·ln(m)）"
     )
-    small_note = f"\n\n> 📌 **小樣本保護**：樣本數僅 {n} 筆，已自動縮小搜尋範圍（max_p={min(3, 1 if n<30 else 2 if n<40 else 3)}, max_q 同），採用嚴格 BIC 懲罰有效抑制過擬合。" if n < 40 else ""
+    small_note = f"\n\n> 📌 **小樣本保護**：樣本數僅 {n} 筆，已自動縮小搜尋範圍，採用嚴格 BIC 懲罰有效抑制過擬合。" if n < 40 else ""
     return {"p": PE.get(p, f"p={p}"), "d": DE.get(d, f"d={d}"), "q": QE.get(q, f"q={q}"),
             "summary": f"由 **{method}** 選定 **ARIMA({p},{d},{q})**。{engine_note}{small_note}",
             "adf_reason": adf["reason"]}
 
-# ── ARIMA 預測（statsmodels MLE 優先，fallback 手工） ──
+# ── ARIMA 預測（fallback 用） ──────────────────────────
 def arima_forecast(series, order, steps):
     p, d, q = order
     s = series[~np.isnan(series)]
@@ -309,9 +299,8 @@ def arima_forecast(series, order, steps):
                 "sigma":    round(sigma, 4)
             }
         except Exception:
-            pass  # fallback to manual
+            pass
 
-    # ── 手工 AR 預測（fallback）──
     sd = orig.copy()
     for _ in range(d): sd = np.diff(sd)
     n = len(sd); ms = np.mean(sd); ar = np.zeros(p)
@@ -341,29 +330,23 @@ def arima_forecast(series, order, steps):
 
 
 # ══════════════════════════════════════════════════════════════
-# 核心預測引擎（論文版）
-# 策略：log-ARIMA 與 ETS 並跑，AIC 自動選最佳
-# 文獻依據：
-#   Box & Jenkins (1976), Hyndman & Khandakar (2008, JSS),
-#   Hyndman & Athanasopoulos (2021) Forecasting: P&P ch.8-9
+# 核心預測引擎
 # ══════════════════════════════════════════════════════════════
 
 def _fit_log_arima(series, order, steps):
     """
     log-ARIMA：對 ln(y) 建模後 exp 還原
-    - epsilon 保護：值<=0 時加偏移防 log(0)
-    - d 上限為 1：d=2 在 log 空間長期外推必發散
+    - d 上限強制為 1：log 空間 d=2 長期外推必發散
     """
     from statsmodels.tsa.arima.model import ARIMA as SM_ARIMA
 
-    # epsilon 保護
     s_min = float(np.nanmin(series))
     epsilon = max(1.0, abs(s_min) / 1000) if s_min <= 0 else 0.0
     series_adj = series + epsilon
     log_s = np.log(series_adj)
 
     p, d, q = order
-    d = min(d, 1)  # d=2 在 log 空間雙重差分，長期外推必發散，上限 1
+    d = min(d, 1)  # ← 關鍵：log 空間 d 上限為 1
 
     model = SM_ARIMA(log_s, order=(p, d, q)).fit(
         method_kwargs={"warn_convergence": False})
@@ -378,7 +361,6 @@ def _fit_log_arima(series, order, steps):
     fc_mean = np.maximum(fc_mean, 0)
     fc_lo   = np.maximum(fc_lo,   0)
 
-    # in_sample 還原，對齊原始序列長度
     fitted = np.exp(np.array(model.fittedvalues, dtype=float)) - epsilon
     if len(fitted) < len(series):
         fitted = np.concatenate([[float(series[0])], fitted])
@@ -395,16 +377,15 @@ def _fit_log_arima(series, order, steps):
         "log_series": log_s,
         "order":      (p, d, q),
     }
+
 def _fit_ets(series, steps):
     """
     ETS（指數平滑狀態空間模型）
     Hyndman & Khandakar (2008) 自動選擇 error/trend/season 組合
-    statsmodels ETSModel：information_criterion='aic' 自動選最佳
     """
     try:
         from statsmodels.tsa.exponential_smoothing.ets import ETSModel
         best_aic, best_result = np.inf, None
-        # 論文常用組合：加法誤差 × (無趨勢/加法趨勢/加法阻尼趨勢)
         for error in ['add']:
             for trend in [None, 'add']:
                 for damped in ([False] if trend is None else [False, True]):
@@ -421,7 +402,6 @@ def _fit_ets(series, steps):
         fc_obj = best_result.get_forecast(steps)
         fc_mu  = fc_obj.predicted_mean.values
         fc_ci  = fc_obj.conf_int(alpha=0.05).values
-        # ETS 預測值不可為負（確保正值）
         fc_mu = np.maximum(fc_mu, series[-1] * 0.05)
         fc_up = np.maximum(fc_ci[:, 1], fc_mu)
         fc_lo = np.maximum(fc_ci[:, 0], series[-1] * 0.02)
@@ -443,37 +423,29 @@ def _fit_ets(series, steps):
 
 def _model_validation(series, in_sample, model_obj=None, model_type="arima"):
     """
-    樣本內驗證指標（論文必備）：
-      MAPE, RMSE, MAE, R²
-      Ljung-Box Q 統計量（lag=10）殘差白噪音檢定
-    文獻：
-      Ljung & Box (1978) Biometrika
-      Hyndman & Koehler (2006) IJF — MAPE/MAE/RMSE 定義
+    樣本內驗證指標：MAPE, RMSE, MAE, R², Ljung-Box
     """
     from scipy import stats as sp_stats
     y    = series.astype(float)
     yhat = np.array(in_sample, dtype=float)
-    # 對齊長度（ETS fittedvalues 有時 index 偏移）
     min_n = min(len(y), len(yhat))
     y, yhat = y[-min_n:], yhat[-min_n:]
     resid  = y - yhat
     ss_res = np.sum(resid ** 2)
     ss_tot = np.sum((y - np.mean(y)) ** 2)
-    # 避免除以零
     nonzero = y != 0
     mape = float(np.mean(np.abs(resid[nonzero] / y[nonzero])) * 100) if nonzero.any() else None
     rmse = float(np.sqrt(np.mean(resid ** 2)))
     mae  = float(np.mean(np.abs(resid)))
     r2   = float(1 - ss_res / ss_tot) if ss_tot > 0 else None
 
-    # Ljung-Box（lag 建議 min(10, n//5)）
     lb_lag = max(1, min(10, len(resid) // 5))
     try:
         import statsmodels.stats.diagnostic as sm_diag
         lb = sm_diag.acorr_ljungbox(resid, lags=[lb_lag], return_df=True)
         lb_stat = float(lb["lb_stat"].iloc[0])
         lb_pval = float(lb["lb_pvalue"].iloc[0])
-        lb_pass = lb_pval > 0.05   # True = 殘差為白噪音（好）
+        lb_pass = lb_pval > 0.05
     except Exception:
         lb_stat, lb_pval, lb_pass = None, None, None
 
@@ -493,31 +465,39 @@ def _model_validation(series, in_sample, model_obj=None, model_type="arima"):
 def select_best_model(series, order, steps):
     """
     主要入口：log-ARIMA 與 ETS 並跑，AIC 選最佳
-    回傳：
-      forecast, upper95, lower95, sigma,
-      best_model ('log_arima' | 'ets'),
-      model_aic, ets_aic, arima_aic,
-      validation (MAPE/RMSE/MAE/R²/Ljung-Box),
-      ets_spec
+    ★ 修正：統一使用 log_order（d<=1）給 log-ARIMA，
+            避免 d=2 時 in_sample 長度與驗證對齊失敗
     """
     results = {}
     errors  = {}
 
+    # ── 關鍵修正：log-ARIMA 統一用 d<=1 ──
+    p, d, q = order
+    log_order = (p, min(d, 1), q)
+
     # ── log-ARIMA ──
     try:
-        results['log_arima'] = _fit_log_arima(series, order, steps)
+        results['log_arima'] = _fit_log_arima(series, log_order, steps)
     except Exception as e:
         errors['log_arima'] = str(e)
+        print(f"[log_arima error] {e}")
 
     # ── ETS ──
     try:
         results['ets'] = _fit_ets(series, steps)
     except Exception as e:
         errors['ets'] = str(e)
+        print(f"[ets error] {e}")
 
     if not results:
         # 兩者均失敗 → fallback 原始 ARIMA（無 log）
-        return arima_forecast(series, order, steps)
+        print(f"[select_best_model] Both failed, fallback. errors={errors}")
+        fc = arima_forecast(series, order, steps)
+        fc['fit_errors'] = errors
+        fc['best_model'] = 'fallback'
+        fc['used_order'] = order
+        fc['validation'] = {}
+        return fc
 
     # ── AIC 選最佳 ──
     best_key = min(results, key=lambda k: results[k]['aic'])
@@ -525,14 +505,20 @@ def select_best_model(series, order, steps):
 
     # ── 驗證指標 ──
     in_s = best.get('in_sample', None)
-    if in_s is not None:
-        val = _model_validation(series, in_s, best.get('model_obj'), best_key)
+    if in_s is not None and len(in_s) > 0:
+        try:
+            val = _model_validation(series, in_s, best.get('model_obj'), best_key)
+        except Exception as e:
+            print(f"[validation error] {e}")
+            val = {}
     else:
         val = {}
 
     arima_aic = results['log_arima']['aic'] if 'log_arima' in results else None
     ets_aic   = results['ets']['aic']       if 'ets'       in results else None
     ets_spec  = results['ets'].get('ets_spec', 'ETS') if 'ets' in results else None
+
+    print(f"[select_best_model] best={best_key}, arima_aic={arima_aic}, ets_aic={ets_aic}, val={val}, errors={errors}")
 
     return {
         "forecast":     best['forecast'],
@@ -546,31 +532,26 @@ def select_best_model(series, order, steps):
         "ets_spec":     ets_spec,
         "validation":   val,
         "fit_errors":   errors if errors else None,
+        "used_order":   log_order,   # ← 實際使用的 order（d 已限制為 <=1）
     }
 
 
 # ══════════════════════════════════════════════════════════════
-# 樣本外驗證（Hold-out OOS）+ Diebold-Mariano 檢定（論文版）
-# 文獻：
-#   Diebold & Mariano (1995) JBES — 預測精度比較檢定
-#   Harvey, Leybourne & Newbold (1997) IJF — 小樣本 DM 修正
-#   Hyndman & Koehler (2006) IJF — MAPE/RMSE/MAE 評估準則
+# Hold-out OOS 驗證 + Diebold-Mariano 檢定
 # ══════════════════════════════════════════════════════════════
 
 def holdout_validation(series, order, holdout=5):
     """
     Hold-out 樣本外驗證（Rolling origin 1步預測）
-    - 用前 n-holdout 期訓練，預測第 n-holdout+1 期
-    - 重複 holdout 次，每次前移一期（Rolling origin）
-    - 回傳 log-ARIMA 與 ETS 各自的 OOS 誤差序列
-
-    Rolling origin 文獻：
-      Tashman (2000) IJF — rolling-origin evaluation
     """
     s = series[~np.isnan(series)].astype(float)
     n = len(s)
     if n < holdout + 10:
-        holdout = max(3, n // 5)   # 小樣本自動縮減
+        holdout = max(3, n // 5)
+
+    # ★ 修正：holdout 也統一用 log_order
+    p, d, q = order
+    log_order = (p, min(d, 1), q)
 
     arima_errs, ets_errs, actuals = [], [], []
     train_end = n - holdout
@@ -580,14 +561,12 @@ def holdout_validation(series, order, holdout=5):
         actual = s[train_end + i]
         actuals.append(actual)
 
-        # log-ARIMA 1步預測
         try:
-            r_a = _fit_log_arima(train, order, steps=1)
+            r_a = _fit_log_arima(train, log_order, steps=1)
             arima_errs.append(float(r_a['forecast'][0]) - actual)
         except Exception:
             arima_errs.append(np.nan)
 
-        # ETS 1步預測
         try:
             r_e = _fit_ets(train, steps=1)
             ets_errs.append(float(r_e['forecast'][0]) - actual)
@@ -609,7 +588,7 @@ def holdout_validation(series, order, holdout=5):
     return {
         "holdout_n":   holdout,
         "holdout_years": list(range(int(series[~np.isnan(series)].shape[0]) - holdout + 1,
-                                    int(series[~np.isnan(series)].shape[0]) + 1)),  # 近似
+                                    int(series[~np.isnan(series)].shape[0]) + 1)),
         "log_arima":   _metrics(arima_errs, actuals),
         "ets":         _metrics(ets_errs,   actuals),
         "arima_errors": [round(float(e), 2) if not np.isnan(e) else None for e in arima_errs],
@@ -620,14 +599,7 @@ def holdout_validation(series, order, holdout=5):
 def diebold_mariano_test(series, order, holdout=5):
     """
     Diebold-Mariano (1995) 預測精度比較檢定
-    H0: log-ARIMA 與 ETS 的預測精度無顯著差異
-    H1: 兩者有顯著差異（雙尾）
-
-    使用 Harvey-Leybourne-Newbold (1997) 小樣本修正版：
-      HLN 統計量服從 t(h-1) 分布
-      修正因子：sqrt((h+1-2k+k(k-1)/h) / h)，k=1（1步預測）
-
-    loss function：MSE（squared error）
+    Harvey-Leybourne-Newbold (1997) 小樣本修正版
     """
     from scipy import stats as sp_stats
 
@@ -635,7 +607,6 @@ def diebold_mariano_test(series, order, holdout=5):
     e1 = np.array(oos['arima_errors'], dtype=float)
     e2 = np.array(oos['ets_errors'],   dtype=float)
 
-    # 移除 NaN 對
     valid = ~(np.isnan(e1) | np.isnan(e2))
     e1, e2 = e1[valid], e2[valid]
     h = len(e1)
@@ -644,26 +615,21 @@ def diebold_mariano_test(series, order, holdout=5):
         return {"error": f"有效配對不足（{h}筆），無法執行 DM 檢定",
                 "oos": oos}
 
-    # Loss differential（MSE）
     d = e1 ** 2 - e2 ** 2
     d_bar = np.mean(d)
-    # Newey-West 異質變異數一致標準誤（lag=0 即普通 SE；小樣本 h<10 用普通 SE）
     se_d = np.std(d, ddof=1) / np.sqrt(h)
 
     if se_d < 1e-10:
         return {"dm_stat": 0.0, "dm_pval": 1.0, "hlm_stat": 0.0, "hlm_pval": 1.0,
                 "conclusion": "兩模型預測完全相同", "oos": oos, "h": h}
 
-    # 原始 DM 統計量（漸近標準常態）
     dm_stat = float(d_bar / se_d)
     dm_pval = float(2 * (1 - sp_stats.norm.cdf(abs(dm_stat))))
 
-    # HLN 小樣本修正（1步預測 k=1）
     hln_cf  = np.sqrt((h + 1 - 2 + (1/h)) / h)
     hln_stat = float(dm_stat * hln_cf)
     hln_pval = float(2 * (1 - sp_stats.t.cdf(abs(hln_stat), df=h - 1)))
 
-    # 結論（α=0.05）
     if hln_pval < 0.05:
         winner = "log-ARIMA" if d_bar < 0 else "ETS"
         conclusion = f"p={hln_pval:.4f} < 0.05，拒絕 H₀，{winner} 預測精度顯著較優"
@@ -684,37 +650,11 @@ def diebold_mariano_test(series, order, holdout=5):
 
 
 # ══════════════════════════════════════════════════════════════
-# 蒙地卡羅情境模擬（政策不確定性量化）
-# 文獻：
-#   Morgan & Henrion (1990) Uncertainty — MC 方法論
-#   IPCC AR6 WG3 Ch.3 — 排放情境不確定性框架
-#   Saltelli et al. (2008) Global Sensitivity Analysis
+# 蒙地卡羅情境模擬
 # ══════════════════════════════════════════════════════════════
 
 def monte_carlo_scenarios(base_val, steps, n_sim=200, seed=42, sigma_data=None, bau_cagr=None):
-    """
-    對三情境的折年率假設常態分布，執行蒙地卡羅模擬
-    回傳各情境的 p5 / p25 / p50 / p75 / p95 百分位
-
-    參數不確定性假設（來自文獻）：
-      BAU：μ=+0.4%，σ=0.8%
-           σ 依據台灣 2005-2023 年排放年變動標準差
-      NDC 2030：μ=-1.6%，σ=0.5%
-           σ 依據 NDC 目標達成率的歷史變異
-           來源：Victor et al. (2017) Nature Climate Change
-      淨零 2050：μ=-4.5%，σ=1.0%
-           σ 反映技術路徑高度不確定性
-           來源：IPCC AR6 WG3 SPM C1 情境範圍
-    """
     rng = np.random.default_rng(seed)
-
-    # ── σ 從資料計算，不引用假文獻 ──────────────────────────
-    # sigma_data：歷史年變動率標準差（從上傳資料算出）
-    # BAU σ = sigma_data（直接反映歷史波動）
-    # Policy/NDC σ：隨政策強度加大（policy: 1.2x，ndc: 1.8x）
-    # 理由：目標越激進，達成的不確定性越高
-    # 文獻依據：此比例關係參考 den Elzen et al. (2019) Clim. Pol.
-    #           「NDC ambiguity scales with target stringency」
     _sd = float(sigma_data) if sigma_data is not None else 0.008
     _mu_bau = float(bau_cagr) if bau_cagr is not None else 0.004
 
@@ -726,11 +666,7 @@ def monte_carlo_scenarios(base_val, steps, n_sim=200, seed=42, sigma_data=None, 
 
     results = {}
     for key, sp in scenario_params.items():
-        # 每次模擬抽一個折年率（常態分布）
         rates = rng.normal(loc=sp["mu"], scale=sp["sigma"], size=n_sim)
-
-        # 對每個 rate 計算 steps 年的排放軌跡
-        # shape: (n_sim, steps)
         all_paths = np.zeros((n_sim, steps))
         for sim_i, r in enumerate(rates):
             v = base_val
@@ -738,7 +674,6 @@ def monte_carlo_scenarios(base_val, steps, n_sim=200, seed=42, sigma_data=None, 
                 v = max(v * (1 + r), 0.0)
                 all_paths[sim_i, t] = v
 
-        # 計算百分位
         p5  = np.percentile(all_paths, 5,  axis=0)
         p25 = np.percentile(all_paths, 25, axis=0)
         p50 = np.percentile(all_paths, 50, axis=0)
@@ -756,26 +691,16 @@ def monte_carlo_scenarios(base_val, steps, n_sim=200, seed=42, sigma_data=None, 
             "mu":     sp["mu"],
             "sigma":  sp["sigma"],
             "n_sim":  n_sim,
-            "reference": (
-                f"BAU σ={_sd*100:.2f}%（歷史年變動率 SD，由上傳資料計算）；"
-                f"Policy σ={_sd*1.2*100:.2f}%（BAU×1.2）；"
-                f"NDC σ={_sd*1.8*100:.2f}%（BAU×1.8）；"
-                "比例依據：den Elzen et al. (2019) Clim. Policy"
-            ) if key == "bau" else None,
         }
 
     return results
 
 
 # ══════════════════════════════════════════════════════════════
-# 自動方法論段落生成（可直接貼入論文）
+# 自動方法論段落生成
 # ══════════════════════════════════════════════════════════════
 
 def generate_methods_text(ts, orr, fc, dm_result, mc_result, scenarios, hy, za_result=None, sigma_data=None, bau_cagr=None):
-    """
-    依分析結果自動生成英文 + 中文方法論段落
-    涵蓋：資料說明、模型選擇、統計驗證、情境設定、不確定性
-    """
     p, d, q = orr['p'], orr['d'], orr['q']
     n       = len(ts)
     y_start = hy[0]; y_end = hy[-1]
@@ -785,9 +710,13 @@ def generate_methods_text(ts, orr, fc, dm_result, mc_result, scenarios, hy, za_r
     ets_aic   = fc.get('ets_aic',   'N/A')
     sel_aic   = fc.get('model_aic', 'N/A')
 
-    model_name_en = (f"log-ARIMA({p},{d},{q})" if best_m == 'log_arima'
+    # 實際使用的 order（d 已限制）
+    used = fc.get('used_order', (p, min(d,1), q))
+    up, ud, uq = used
+
+    model_name_en = (f"log-ARIMA({up},{ud},{uq})" if best_m == 'log_arima'
                      else fc.get('ets_spec', 'ETS'))
-    model_name_zh = (f"對數轉換 ARIMA({p},{d},{q})" if best_m == 'log_arima'
+    model_name_zh = (f"對數轉換 ARIMA({up},{ud},{uq})" if best_m == 'log_arima'
                      else fc.get('ets_spec', 'ETS'))
 
     mape_str = f"{val.get('mape','N/A')}%" if val.get('mape') else "N/A"
@@ -797,7 +726,6 @@ def generate_methods_text(ts, orr, fc, dm_result, mc_result, scenarios, hy, za_r
     lb_pass  = "indicating no significant residual autocorrelation" if val.get('lb_pass') else \
                "suggesting residual autocorrelation may be present"
 
-    # DM 結果
     dm_str_en = dm_str_zh = "DM test not available"
     if dm_result and 'hln_pval' in dm_result:
         oos = dm_result.get('oos', {})
@@ -819,46 +747,41 @@ def generate_methods_text(ts, orr, fc, dm_result, mc_result, scenarios, hy, za_r
             f"{dm_result['conclusion']}。"
         )
 
-    # MC 結果（資料驅動 sigma）
     mc_str_en = mc_str_zh = ""
     _sd_pct = round(float(sigma_data)*100, 2) if sigma_data else "N/A"
     _bau_pct = f"{float(bau_cagr)*100:+.2f}" if bau_cagr else "+0.40"
     if mc_result and not mc_result.get('error'):
-        n_sim = list(mc_result.values())[0].get('n_sim', 1000)
+        n_sim = list(mc_result.values())[0].get('n_sim', 500)
         mc_str_en = (
             f"To quantify policy uncertainty, a Monte Carlo simulation ({n_sim:,} iterations, "
             f"seed=42) was applied. The standard deviation for the BAU scenario (σ={_sd_pct}%) "
             f"was derived empirically from the historical annual rate-of-change standard deviation "
             f"of the uploaded dataset ({y_start}–{y_end}). Policy and net-zero scenario σ values "
-            f"were set at 1.2× and 1.8× the BAU σ respectively, reflecting increasing uncertainty "
-            f"with policy stringency (den Elzen et al., 2019, Clim. Policy). "
+            f"were set at 1.2× and 1.8× the BAU σ respectively (den Elzen et al., 2019). "
             f"Results are reported as 5th–95th percentile bands."
         )
         mc_str_zh = (
             f"為量化政策不確定性，本研究對情境預測執行蒙地卡羅模擬（{n_sim:,} 次，seed=42）。"
             f"BAU 情境的標準差（σ={_sd_pct}%）由上傳資料（{y_start}–{y_end}年）"
-            f"歷史年變動率標準差實際計算，非假設值。"
-            f"積極政策與淨零情境 σ 分別設為 BAU 的 1.2 倍與 1.8 倍，"
-            f"反映政策目標越激進、達成不確定性越高的原則"
+            f"歷史年變動率標準差實際計算。"
+            f"積極政策與淨零情境 σ 分別設為 BAU 的 1.2 倍與 1.8 倍"
             f"（den Elzen et al., 2019, Clim. Policy）。"
             f"結果以 5th–95th 百分位區間呈現。"
         )
 
-    # ZA 結果段落
     za_str_en = za_str_zh = ""
     if za_result and za_result.get('skipped'):
         za_str_en = f"The Zivot-Andrews structural break test was not conducted: {za_result.get('reason', 'insufficient observations')}."
         za_str_zh = f"Zivot-Andrews 結構斷點檢定未執行：{za_result.get('reason', '樣本數不足')}。"
     elif za_result and not za_result.get('error'):
         za_str_en = (
-            f"A Zivot-Andrews (1992) structural break test was conducted to identify "
-            f"potential regime shifts in the emission series. The test statistic was "
-            f"{za_result['za_stat']} (p={za_result['za_pval']}), with the most significant "
-            f"breakpoint identified at {za_result['bp_year']}. {za_result['conclusion']}. "
-            f"{za_result['arima_note']}."
+            f"A Zivot-Andrews (1992) structural break test was conducted. "
+            f"The test statistic was {za_result['za_stat']} (p={za_result['za_pval']}), "
+            f"with the most significant breakpoint at {za_result['bp_year']}. "
+            f"{za_result['conclusion']}. {za_result['arima_note']}."
         )
         za_str_zh = (
-            f"本研究執行 Zivot-Andrews（1992）結構斷點檢定，識別排放序列中可能的政策轉折或外生衝擊。"
+            f"本研究執行 Zivot-Andrews（1992）結構斷點檢定。"
             f"ZA 統計量 = {za_result['za_stat']}（p = {za_result['za_pval']}），"
             f"最顯著斷點位於 {za_result['bp_year']} 年。{za_result['conclusion']}。"
             f"{za_result['arima_note']}。"
@@ -867,68 +790,56 @@ def generate_methods_text(ts, orr, fc, dm_result, mc_result, scenarios, hy, za_r
     en_text = f"""3. Methodology
 
 3.1 Data
-Annual greenhouse gas (GHG) emissions data for Taiwan were obtained from the National GHG Inventory Report (Ministry of Environment, Taiwan, 2024), covering the period {y_start}–{y_end} (n = {n}). All emission values are expressed in kilotons of CO₂ equivalent (kt CO₂e).
+Annual GHG emissions data covering {y_start}–{y_end} (n={n}). All values in kt CO₂e.
 
-3.2 Time-Series Model Selection
-Two competing forecasting models were estimated: (1) a log-transformed ARIMA model (log-ARIMA), which applies the natural logarithm transformation prior to ARIMA estimation to ensure non-negative forecasts and stabilize variance (Box & Jenkins, 1976); and (2) an Exponential Smoothing State Space Model (ETS), with error, trend, and seasonal components selected automatically by minimizing AIC (Hyndman & Khandakar, 2008). The optimal ARIMA order was determined via pmdarima auto_arima with BIC criterion (ndiffs ADF/KPSS test, d={d}). Model selection between log-ARIMA and ETS was based on the Akaike Information Criterion (AIC): log-ARIMA AIC = {arima_aic}, ETS AIC = {ets_aic}; {model_name_en} was selected (AIC = {sel_aic}).
+3.2 Model Selection
+Two competing models: (1) log-ARIMA({up},{ud},{uq}) and (2) {fc.get('ets_spec','ETS')}.
+log-ARIMA AIC = {arima_aic}, ETS AIC = {ets_aic}; {model_name_en} selected (AIC = {sel_aic}).
 
 3.2b Structural Break Test
 {za_str_en}
 
-3.3 In-Sample Goodness of Fit
-The selected model ({model_name_en}) achieved in-sample MAPE = {mape_str} and RMSE = {rmse_str}. Ljung-Box portmanteau test: {lb_str}, {lb_pass} (Ljung & Box, 1978).
+3.3 In-Sample Fit
+MAPE = {mape_str}, RMSE = {rmse_str}. Ljung-Box: {lb_str}, {lb_pass}.
 
-3.4 Out-of-Sample Validation and Model Comparison
+3.4 Out-of-Sample Validation
 {dm_str_en}
 
 3.5 Scenario Analysis (AD-EF Framework)
-Three emission scenarios were constructed following the Kaya identity framework (Kaya, 1990; Ang & Zhang, 2000):
-(1) BAU scenario: annual net rate = +0.4%/yr, extrapolating the observed 2005–2019 historical trend (Ministry of Environment, 2024);
-(2) Active Policy scenario (NDC 2030): annual net rate = -1.6%/yr, derived from Taiwan's Nationally Determined Contribution target of -24% relative to 2005 by 2030 (Taiwan NDC Update, UNFCCC, 2022);
-(3) Net-zero scenario (NDC 2050): annual net rate = -4.5%/yr, consistent with the 2050 Net-Zero Emission Pathway (National Development Council, 2022) and IPCC AR6 WG3 C1 scenario range.
+BAU: +{_bau_pct}%/yr (data CAGR 2005–2019);
+Active Policy (NDC 2030): -1.6%/yr;
+Net-Zero (NDC 2050): -4.5%/yr.
 
 3.6 Uncertainty Quantification
 {mc_str_en}
 
 References
-Akaike, H. (1974). A new look at the statistical model identification. IEEE TAC, 19(6), 716–723.
-Ang, B.W., & Zhang, F.Q. (2000). A survey of index decomposition analysis in energy and environmental studies. Energy, 25, 1149–1176.
-Box, G.E.P., & Jenkins, G.M. (1976). Time Series Analysis: Forecasting and Control. Holden-Day.
-Diebold, F.X., & Mariano, R.S. (1995). Comparing predictive accuracy. JBES, 13(3), 253–263.
-Harvey, D., Leybourne, S., & Newbold, P. (1997). Testing the equality of prediction mean squared errors. IJF, 13(2), 281–291.
-Hyndman, R.J., & Khandakar, Y. (2008). Automatic time series forecasting. JSS, 27(3), 1–22.
-Hyndman, R.J., & Koehler, A.B. (2006). Another look at measures of forecast accuracy. IJF, 22(4), 679–688.
-IPCC (2022). AR6 WG3 — Mitigation of Climate Change. Cambridge University Press.
-Kaya, Y. (1990). Impact of carbon dioxide emission on GNP growth. IPCC Energy and Industry Subgroup.
-Ljung, G.M., & Box, G.E.P. (1978). On a measure of lack of fit in time series models. Biometrika, 65(2), 297–303.
-National Development Council (2022). Taiwan's Pathway to Net-Zero Emissions in 2050.
-Taiwan NDC Update (2022). Taiwan's Updated Nationally Determined Contribution. UNFCCC Submission.
-Victor, D.G. et al. (2017). Prove Paris was more than paper promises. Nature, 548, 25–27.
-Zivot, E., & Andrews, D.W.K. (1992). Further evidence on the great crash, the oil-price shock, and the unit-root hypothesis. JBES, 10(3), 251–270.
-den Elzen, M. et al. (2019). Are the G20 economies making enough progress to meet their NDC targets? Energy Policy, 126, 24–37."""
+Box & Jenkins (1976); Diebold & Mariano (1995) JBES; Harvey et al. (1997) IJF;
+Hyndman & Khandakar (2008) JSS; Ljung & Box (1978) Biometrika;
+Zivot & Andrews (1992) JBES; den Elzen et al. (2019) Clim. Policy."""
 
     zh_text = f"""三、研究方法
 
-（一）資料來源
-本研究使用台灣{y_start}至{y_end}年溫室氣體排放清冊資料（n={n}筆），來源為環境部溫室氣體排放清冊報告（2024年版）。排放量單位為千公噸二氧化碳當量（kt CO₂e）。
+（一）資料
+{y_start}–{y_end} 年溫室氣體排放清冊（n={n}筆），單位 kt CO₂e。
 
-（二）時間序列模型選擇
-本研究比較兩類預測模型：（1）對數轉換 ARIMA 模型（log-ARIMA），對排放量取自然對數後建模，從數學上確保預測值非負且穩定變異（Box & Jenkins, 1976）；（2）指數平滑狀態空間模型（ETS），以 AIC 自動選擇誤差、趨勢與季節成分組合（Hyndman & Khandakar, 2008）。ARIMA 階數透過 pmdarima auto_arima（BIC 準則，ndiffs ADF/KPSS 檢定，d={d}）決定。log-ARIMA AIC = {arima_aic}，ETS AIC = {ets_aic}，依 AIC 最小準則選用 {model_name_zh}（AIC = {sel_aic}）。
+（二）模型選擇
+比較 log-ARIMA({up},{ud},{uq}) 與 {fc.get('ets_spec','ETS')}。
+log-ARIMA AIC={arima_aic}，ETS AIC={ets_aic}，依 AIC 最小準則選用 {model_name_zh}（AIC={sel_aic}）。
 
 （二之一）結構斷點檢定
 {za_str_zh}
 
 （三）樣本內配適度
-選用模型（{model_name_zh}）之樣本內 MAPE = {mape_str}，RMSE = {rmse_str}。Ljung-Box 殘差白噪音檢定：{lb_str}，{('殘差無顯著自相關，模型設定充分' if val.get('lb_pass') else '殘差存在自相關，模型設定需審慎詮釋')}（Ljung & Box, 1978）。
+MAPE={mape_str}，RMSE={rmse_str}。Ljung-Box：{lb_str}，{('殘差無顯著自相關' if val.get('lb_pass') else '殘差存在自相關')}。
 
-（四）樣本外驗證與模型比較
+（四）樣本外驗證
 {dm_str_zh}
 
-（五）情境分析（AD-EF 框架）
-本研究依 Kaya 恆等式框架（Kaya, 1990；Ang & Zhang, 2000）設定三項情境：
-（1）基準情境（BAU）：年淨變化率 +0.4%，延伸 2005–2019 年歷史趨勢（環境部清冊，2024）；
-（2）積極政策情境（NDC 2030）：年淨變化率 -1.6%，依台灣 2030 NDC 目標（相對 2005 年減 24%）折算（Taiwan NDC Update, UNFCCC, 2022）；
-（3）NDC 淨零情境（2050）：年淨變化率 -4.5%，依國發會 2050 淨零排放路徑（2022）及 IPCC AR6 WG3 C1 情境範圍設定。
+（五）情境分析
+BAU：{_bau_pct}%/yr（資料 CAGR 2005–2019）；
+積極政策（NDC 2030）：-1.6%/yr；
+NDC 淨零（2050）：-4.5%/yr。
 
 （六）不確定性量化
 {mc_str_zh}"""
@@ -936,27 +847,16 @@ den Elzen, M. et al. (2019). Are the G20 economies making enough progress to mee
     return {"en": en_text, "zh": zh_text}
 
 
-
 # ══════════════════════════════════════════════════════════════
 # Zivot-Andrews 結構斷點檢定
-# 文獻：Zivot & Andrews (1992) JBES — 允許單一結構斷點的 ADF 檢定
-#       H0：含結構斷點之單位根；H1：斷點前後均平穩
-# statsmodels zivot_andrews：type='both'（截距+趨勢均允許斷點）
 # ══════════════════════════════════════════════════════════════
 def zivot_andrews_test(series, years):
-    """
-    對排放序列執行 Zivot-Andrews (1992) 結構斷點檢定
-    - 自動找最顯著斷點年份
-    - 回傳 ZA 統計量、p 值、斷點年份、結論
-    - 若 statsmodels 不支援則 fallback 說明
-    """
     try:
         from statsmodels.tsa.stattools import zivot_andrews
         s = series[~np.isnan(series)].astype(float)
         za_stat, za_pval, za_cvdict, za_bplag, za_bpidx = zivot_andrews(
             s, trim=0.15, maxlag=None, regression='ct', autolag='AIC'
         )
-        # 斷點對應年份
         bp_year = int(years[za_bpidx]) if za_bpidx < len(years) else None
         cv_1pct = za_cvdict.get('1%', None)
         cv_5pct = za_cvdict.get('5%', None)
@@ -964,7 +864,7 @@ def zivot_andrews_test(series, years):
         if za_pval < 0.05:
             conclusion = (f"p={za_pval:.4f} < 0.05，拒絕含斷點單位根 H₀，"
                           f"序列在斷點（{bp_year}年）前後均平穩")
-            arima_note = f"建議在 ARIMA 中加入 {bp_year} 年虛擬變數（dummy variable）"
+            arima_note = f"建議在 ARIMA 中加入 {bp_year} 年虛擬變數"
         else:
             conclusion = (f"p={za_pval:.4f} ≥ 0.05，未拒絕含斷點單位根，"
                           f"序列含結構性趨勢，ARIMA 差分設定合理")
@@ -982,36 +882,12 @@ def zivot_andrews_test(series, years):
             "reference":  "Zivot & Andrews (1992) JBES 10(3), 251–270",
         }
     except ImportError:
-        return {"error": "statsmodels.tsa.stattools.zivot_andrews 不可用，請升級 statsmodels >= 0.13"}
+        return {"error": "statsmodels.tsa.stattools.zivot_andrews 不可用"}
     except Exception as e:
         return {"error": f"ZA 檢定失敗：{str(e)[:80]}"}
 
 # ── AD-EF 情境計算 ──────────────────────────────────────
 def adef_scenarios(base_val, steps, params, bau_cagr=None):
-    """
-    三情境 AD-EF 預測（論文版）
-    ─────────────────────────────────────────────────────
-    情境基礎減排率來源（可引用）：
-      BAU：台灣 2005–2019 歷史年均排放成長率約 +0.4%
-           來源：環境部溫室氣體排放清冊（2024 版），
-                 國發會 2022 年淨零排放路徑（背景假設）
-      積極政策：台灣 2030 NDC 目標相對 2005 年減 24±1%，
-               折年率約 -1.6%（自 2023 年起計算至 2030）
-               來源：Taiwan NDC Update (2022), UNFCCC Submission
-      NDC 淨零：2050 淨零目標折年率約 -4.5%（自 2023 年起）
-               來源：台灣 2050 淨零排放路徑，國發會 (2022)；
-                     IPCC AR6 WG3 Ch.3 C1 情境
-
-    AD-EF 框架文獻：
-      Kaya (1990) Impact of Carbon Dioxide Emission on GNP Growth;
-      Ang & Zhang (2000) Energy Policy — Kaya 分解架構
-      Rosa & Dietz (2012) Nature Climate Change — STIRPAT 延伸
-
-    外生滑桿（使用者可調）疊加在基礎率上：
-      AD 驅動：Δemission ≈ gdp × elasticity + pop × 0.35
-      EF 效率：Δemission ≈ -(eff + re × 0.012)
-    ─────────────────────────────────────────────────────
-    """
     gdp = params.get("gdp", 0.0)
     pop = params.get("pop", 0.0)
     eff = params.get("eff", 0.0)
@@ -1022,9 +898,7 @@ def adef_scenarios(base_val, steps, params, bau_cagr=None):
     exog_ef = eff + re * 0.012
 
     scenarios = {
-        # base_rate 來源見 docstring；citation_key 供前端顯示引用
         "bau": {
-            # BAU：優先使用資料計算的 CAGR，fallback 0.4%
             "base_rate": float(bau_cagr) if bau_cagr is not None else +0.004,
             "label":     "基準情境 BAU",
             "color":     "#f59e0b",
@@ -1032,14 +906,14 @@ def adef_scenarios(base_val, steps, params, bau_cagr=None):
             "rate_note": f"{float(bau_cagr)*100:+.2f}%/yr（資料計算 CAGR）" if bau_cagr is not None else "+0.4%/yr（預設值）",
         },
         "policy": {
-            "base_rate": -0.016,   # NDC 2030 目標 -24% vs 2005，折年率
+            "base_rate": -0.016,
             "label":     "積極政策情境（NDC 2030）",
             "color":     "#38bdf8",
             "citation":  "Taiwan NDC Update (2022), UNFCCC Submission",
             "rate_note": "-1.6%/yr（NDC 2030 折年率）",
         },
         "ndc": {
-            "base_rate": -0.045,   # 2050 淨零目標折年率
+            "base_rate": -0.045,
             "label":     "NDC 淨零情境（2050）",
             "color":     "#00e5c0",
             "citation":  "台灣 2050 淨零排放路徑 (2022)；IPCC AR6 WG3 C1",
@@ -1051,7 +925,7 @@ def adef_scenarios(base_val, steps, params, bau_cagr=None):
         net_rate = sc["base_rate"] + exog_ad - exog_ef
         vals = []; v = base_val
         for _ in range(steps):
-            v = max(v * (1 + net_rate), 0.0)   # 不允許負排放
+            v = max(v * (1 + net_rate), 0.0)
             vals.append(round(v, 2))
         result[key] = {
             "values":    vals,
@@ -1059,15 +933,13 @@ def adef_scenarios(base_val, steps, params, bau_cagr=None):
             "color":     sc["color"],
             "citation":  sc["citation"],
             "rate_note": sc["rate_note"],
-            "net_rate":  round(net_rate * 100, 3),   # % 供前端顯示
+            "net_rate":  round(net_rate * 100, 3),
         }
     return result
 
 
-
 # ── 診斷數據計算 ─────────────────────────────────────────
 def _acf_values(series, nlags=20):
-    """手工計算 ACF，回傳 lag 0..nlags"""
     s = np.array(series, dtype=float); n = len(s)
     mu = np.mean(s); c0 = np.var(s)
     if c0 == 0: return [1.0] + [0.0]*nlags
@@ -1077,7 +949,6 @@ def _acf_values(series, nlags=20):
     return acf
 
 def _pacf_values(series, nlags=20):
-    """Yule-Walker 法計算 PACF"""
     acf = _acf_values(series, nlags)
     pacf = [1.0, acf[1]]
     phi = {1: [acf[1]]}
@@ -1092,18 +963,15 @@ def _pacf_values(series, nlags=20):
     return pacf
 
 def _conf_band(n, nlags):
-    """95% 信心帶 ±1.96/√n"""
     cb = 1.96 / np.sqrt(n)
     return [round(cb, 4)] * (nlags+1)
 
 def compute_diagnostics(series, order, steps=None):
-    """計算完整診斷數據：殘差、ACF/PACF、差分序列"""
     p, d, q = order
     s = np.array(series[~np.isnan(series)], dtype=float)
     n = len(s)
     nlags = min(20, n//2 - 1)
 
-    # 殘差（用差分後的序列減 AR 擬合值）
     sd = s.copy()
     for _ in range(d): sd = np.diff(sd)
     ar = np.zeros(p)
@@ -1116,7 +984,6 @@ def compute_diagnostics(series, order, steps=None):
     sigma_r = np.std(resid) if np.std(resid) > 0 else 1.0
     std_resid = resid / sigma_r
 
-    # 差分序列（用於差分分析圖）
     diff1 = np.diff(s).tolist()
     diff2 = np.diff(np.diff(s)).tolist() if len(s) > 2 else []
 
@@ -1161,7 +1028,6 @@ def upload_file():
     except Exception as e: return safe_json({"error":str(e)},400)
 
 def _load_and_prep(req):
-    """共用：讀檔、清洗、找 total 序列"""
     df=read_file(req.files['file'])
     cm={"year":req.form.get("col_year",""),"total":req.form.get("col_total",""),
         "co2":req.form.get("col_co2",""),"ch4":req.form.get("col_ch4",""),
@@ -1204,8 +1070,7 @@ def analyze():
     steps=2050-ly
     if steps<=0: return safe_json({"error":f"資料已涵蓋至 {ly} 年"},400)
 
-    # ── 從資料計算 BAU CAGR 與 MC sigma（論文品質：不用假設值）──
-    # BAU CAGR：取 2005–2019 年（景氣循環較穩定的參考期）
+    # ── BAU CAGR + MC sigma ──
     try:
         ref_years = np.array(hy); ref_ts = ts.copy()
         mask = (ref_years >= 2005) & (ref_years <= 2019)
@@ -1213,11 +1078,10 @@ def analyze():
             y0 = ref_ts[mask][0]; yn = ref_ts[mask][-1]
             n_yrs = mask.sum() - 1
             bau_cagr = float((yn / y0) ** (1.0 / n_yrs) - 1)
-        elif len(ts) >= 5:             # 用全期 CAGR（至少5筆）
+        elif len(ts) >= 5:
             bau_cagr = float((ts[-1] / ts[0]) ** (1.0 / (len(ts)-1)) - 1)
-        else:                          # 極少資料，用 0
+        else:
             bau_cagr = 0.0
-        # 年變動標準差（用於 MC σ）
         annual_changes = np.diff(ts) / ts[:-1]
         sigma_data = float(np.std(annual_changes, ddof=1))
     except Exception:
@@ -1225,17 +1089,14 @@ def analyze():
         sigma_data = 0.008
 
     orr=select_arima_order(ts); p,d,q=orr['p'],orr['d'],orr['q']
-    fc=select_best_model(ts,(p,d,q),steps)   # log-ARIMA vs ETS，AIC 自動選最佳
+    fc=select_best_model(ts,(p,d,q),steps)
     fy=list(range(ly+1,2051))
 
     # AD-EF 三情境
     params=_get_adef_params(request)
     scenarios=adef_scenarios(ts[-1], steps, params, bau_cagr=bau_cagr)
 
-    # ── 樣本外驗證 + DM 檢定 ──
-    # n<20：不做 hold-out（樣本太少）
-    # 20<=n<30：holdout=3
-    # n>=30：holdout=min(5, n//6)
+    # ── DM 檢定 ──
     n_ts = len(ts)
     if n_ts < 20:
         dm_result = {
@@ -1249,11 +1110,11 @@ def analyze():
         except Exception as e:
             dm_result = {"error": str(e)}
 
-    # ── Zivot-Andrews 結構斷點檢定（需 n>=20）──
+    # ── Zivot-Andrews ──
     if n_ts < 20:
         za_result = {
             "skipped": True,
-            "reason": f"樣本數 {n_ts} 筆（<20），ZA 檢定 trim=0.15 需要至少 20 筆",
+            "reason": f"樣本數 {n_ts} 筆（<20），ZA 檢定需至少 20 筆",
         }
     else:
         try:
@@ -1261,27 +1122,21 @@ def analyze():
         except Exception as e:
             za_result = {"error": str(e)}
 
-    # ── 蒙地卡羅情境模擬（1000次）──
+    # ── 蒙地卡羅 ──
     try:
-        # n_sim：本地/高效能環境用1000，Render免費方案建議500
-        mc_n_sim = int(500)
-        mc_result = monte_carlo_scenarios(float(ts[-1]), steps, n_sim=mc_n_sim, sigma_data=sigma_data, bau_cagr=bau_cagr)
+        mc_result = monte_carlo_scenarios(float(ts[-1]), steps, n_sim=500, sigma_data=sigma_data, bau_cagr=bau_cagr)
     except Exception as e:
         mc_result = {"error": str(e)}
 
-    # ── 自動方法論段落 ──
+    # ── 方法論段落 ──
     try:
         methods_text = generate_methods_text(ts, orr, fc, dm_result, mc_result, scenarios, hy, za_result=za_result, sigma_data=sigma_data, bau_cagr=bau_cagr)
     except Exception as e:
         methods_text = {"error": str(e)}
 
-    # 氣體種類預測（7種：CO₂/CH₄/N₂O/HFCs/PFCs/SF₆/NF₃）
-    # ── 氣體種類預測（論文品質：小樣本保護）──
-    # n>=20：正常跑 log-ARIMA/ETS
-    # 10<=n<20：只跑 log-ARIMA（ETS 不穩定），標記警告
-    # n<10：跳過，不輸出預測（避免統計意義不足）
-    GAS_MIN_N     = 10   # 低於此值不做預測
-    GAS_ETS_MIN_N = 25   # 低於此值不跑 ETS（Hyndman & Khandakar 2008 建議 n>20，此處保守取 25）
+    # ── 氣體種類預測 ──
+    GAS_MIN_N     = 10
+    GAS_ETS_MIN_N = 25
     gas_results={}
     for col in ['co2','ch4','n2o','hfc','pfc','sf6','nf3']:
         if col in dfc.columns and not dfc[col].isna().all():
@@ -1290,18 +1145,17 @@ def analyze():
             if n_gas < GAS_MIN_N:
                 gas_results[col] = {
                     "skipped": True,
-                    "reason": f"樣本數 {n_gas} 筆（<{GAS_MIN_N}），統計意義不足，跳過預測",
+                    "reason": f"樣本數 {n_gas} 筆（<{GAS_MIN_N}），跳過預測",
                     "history": [round(float(v),2) for v in s],
                 }
                 continue
             try:
                 if n_gas < GAS_ETS_MIN_N:
-                    # 小樣本：強制 log-ARIMA，跳過 ETS
-                    g = _fit_log_arima(s, (min(p,1), d, 0), steps)
+                    g = _fit_log_arima(s, (min(p,1), min(d,1), 0), steps)
                     g['best_model'] = 'log_arima'
-                    g['warning'] = f"樣本數 {n_gas} 筆（<25），已停用 ETS 改用 log-ARIMA（Hyndman & Khandakar, 2008 建議 n>20）"
+                    g['warning'] = f"樣本數 {n_gas} 筆（<25），已停用 ETS"
                 else:
-                    g = select_best_model(s, (min(p,1), d, 0), steps)
+                    g = select_best_model(s, (min(p,1), min(d,1), 0), steps)
                 gas_results[col]={
                     "history":  [round(float(v),2) for v in s],
                     "forecast": [round(float(v),2) for v in g['forecast']],
@@ -1314,7 +1168,7 @@ def analyze():
             except Exception as e:
                 gas_results[col] = {"error": str(e)[:80], "n": n_gas}
 
-    # ── 部門分解 ARIMA（能源/工業/農業/廢棄物）──
+    # ── 部門分解 ──
     SECTORS = {
         'energy':   {'label':'能源部門',    'color':'#f97316'},
         'industry': {'label':'工業製程',    'color':'#a78bfa'},
@@ -1322,7 +1176,6 @@ def analyze():
         'waste':    {'label':'廢棄物部門',  'color':'#fb923c'},
     }
     sector_results = {}
-    sector_sum_hist = None   # 有資料的部門歷史加總（用來計算「其他」）
     for scol, smeta in SECTORS.items():
         if scol not in dfc.columns or dfc[scol].isna().all():
             continue
@@ -1332,14 +1185,12 @@ def analyze():
             sector_results[scol] = {
                 "label": smeta["label"], "color": smeta["color"],
                 "skipped": True,
-                "reason": f"樣本數 {n_sv} 筆（<10），不做預測"
+                "reason": f"樣本數 {n_sv} 筆（<10）"
             }
             continue
         try:
-            # 部門用較低階模型避免過擬合（小樣本保護）
             sp_ord = min(p, 1)
-            sg = select_best_model(sv, (sp_ord, d, 0), steps)
-            # 部門也用 log-ARIMA 自然防負值（透過 select_best_model 已處理）
+            sg = select_best_model(sv, (sp_ord, min(d,1), 0), steps)
             sector_results[scol] = {
                 'label':   smeta['label'],
                 'color':   smeta['color'],
@@ -1359,15 +1210,13 @@ def analyze():
             v=row.get(c,None); r[c]=round(float(v),2) if v is not None and pd.notna(v) else None
         hist_tbl.append(r)
 
-    # 土地匯：線性推算（越來越多，即負值越來越大）
-    # 用歷史最後 5 年（或全部）做線性回歸，推算每年增加量
+    # 土地匯線性推算
     land_vals = dfc['land'].dropna().values if 'land' in dfc.columns else []
     if len(land_vals) >= 2:
-        n_fit = min(len(land_vals), 10)  # 最多用近 10 年趨勢
+        n_fit = min(len(land_vals), 10)
         x_fit = np.arange(n_fit)
         y_fit = land_vals[-n_fit:].astype(float)
         slope, intercept = np.polyfit(x_fit, y_fit, 1)
-        # 從最後一年往後線性延伸（slope 為負時代表吸收越來越多）
         fc_land_series = [float(land_vals[-1]) + slope * (i + 1) for i in range(steps)]
     elif len(land_vals) == 1:
         slope = 0.0
@@ -1391,25 +1240,54 @@ def analyze():
             **{c: None for c in ['energy','industry','agri','waste','co2','ch4','n2o']}
         })
 
-    return safe_json({"status":"ok","hist_years":hy,"hist_total":[round(float(v),2) for v in ts],
-        "fc_years":fy,"fc_total":[round(float(v),2) for v in fc['forecast']],
+    # ── 取得實際使用的 order ──
+    used_order = fc.get('used_order', (p, min(d,1), q))
+
+    return safe_json({
+        "status":"ok",
+        "hist_years":hy,
+        "hist_total":[round(float(v),2) for v in ts],
+        "fc_years":fy,
+        "fc_total":[round(float(v),2) for v in fc['forecast']],
         "fc_upper":[round(float(v),2) for v in fc['upper95']],
         "fc_lower":[round(float(v),2) for v in fc['lower95']],
-        "sigma":fc['sigma'],"arima_order":{"p":p,"d":d,"q":q},
-        "arima_explanation":orr['explanation'],"aic_table":orr['aic_table'],
-        "adf_result":orr['adf'],"sample_size":orr['sample_size'],"warning":orr['warning'],
-        "fc_net":[r["net"] for r in fc_tbl],"fc_land_series":[r["land"] for r in fc_tbl],"fc_land_slope":round(float(slope),2) if slope is not None else None,
-        "sector_results":sector_results,"gas_results":gas_results,"history_table":hist_tbl,"forecast_table":fc_tbl,
-        "dm_result":dm_result,"za_result":za_result,"bau_cagr":round(float(bau_cagr)*100,3),"sigma_data":round(float(sigma_data)*100,3),"mc_result":mc_result,"methods_text":methods_text,
-        "model_info":{"best_model":fc.get('best_model'),"arima_order":{"p":p,"d":d,"q":q},
-            "arima_aic":fc.get('arima_aic'),"ets_aic":fc.get('ets_aic'),"model_aic":fc.get('model_aic'),
-            "ets_spec":fc.get('ets_spec'),"validation":fc.get('validation'),"fit_errors":fc.get('fit_errors')},
+        "sigma":fc['sigma'],
+        "arima_order":{"p":p,"d":d,"q":q},
+        "arima_explanation":orr['explanation'],
+        "aic_table":orr['aic_table'],
+        "adf_result":orr['adf'],
+        "sample_size":orr['sample_size'],
+        "warning":orr['warning'],
+        "fc_net":[r["net"] for r in fc_tbl],
+        "fc_land_series":[r["land"] for r in fc_tbl],
+        "fc_land_slope":round(float(slope),2) if slope is not None else None,
+        "sector_results":sector_results,
+        "gas_results":gas_results,
+        "history_table":hist_tbl,
+        "forecast_table":fc_tbl,
+        "dm_result":dm_result,
+        "za_result":za_result,
+        "bau_cagr":round(float(bau_cagr)*100,3),
+        "sigma_data":round(float(sigma_data)*100,3),
+        "mc_result":mc_result,
+        "methods_text":methods_text,
+        "model_info":{
+            "best_model":  fc.get('best_model'),
+            # ★ 修正：回傳實際使用的 order（d 已限制 <=1）
+            "arima_order": {"p": used_order[0], "d": used_order[1], "q": used_order[2]},
+            "arima_aic":   fc.get('arima_aic'),
+            "ets_aic":     fc.get('ets_aic'),
+            "model_aic":   fc.get('model_aic'),
+            "ets_spec":    fc.get('ets_spec'),
+            "validation":  fc.get('validation'),
+            "fit_errors":  fc.get('fit_errors'),
+        },
         "diagnostics":compute_diagnostics(ts,(p,d,q)),
-        "scenarios":scenarios})
+        "scenarios":scenarios,
+    })
 
 @app.route('/api/scenarios', methods=['POST'])
 def scenarios_only():
-    """只重算 AD-EF 情境，不重跑 ARIMA"""
     if 'file' not in request.files: return safe_json({"error":"未收到檔案"},400)
     try: dfc=_load_and_prep(request)
     except Exception as e: return safe_json({"error":str(e)},400)
@@ -1417,7 +1295,6 @@ def scenarios_only():
     hy=dfc['year'].tolist(); ly=hy[-1]
     steps=2050-ly
     params=_get_adef_params(request)
-    # 重新計算 bau_cagr（與 /api/analyze 邏輯一致）
     try:
         ref_years = np.array(hy); ref_ts = ts.copy()
         mask = (ref_years >= 2005) & (ref_years <= 2019)
