@@ -484,11 +484,11 @@ def _load_and_prep(req):
 
 def _get_adef_params(req):
     return {
-        "gdp":      float(req.form.get("adef_gdp",     0.025)),
-        "elasticity":float(req.form.get("adef_elasticity",0.65)),
-        "pop":      float(req.form.get("adef_pop",     0.003)),
-        "eff":      float(req.form.get("adef_eff",     0.015)),
-        "re":       float(req.form.get("adef_re",      0.30)),
+        "gdp":      float(req.form.get("adef_gdp",     0.0)),
+        "elasticity":float(req.form.get("adef_elasticity",0.0)),
+        "pop":      float(req.form.get("adef_pop",     0.0)),
+        "eff":      float(req.form.get("adef_eff",     0.0)),
+        "re":       float(req.form.get("adef_re",      0.0)),
     }
 
 @app.route('/api/analyze', methods=['POST'])
