@@ -1,3 +1,4 @@
+
 // ── Datalabels Plugin 全域設定（預設關閉，匯出時開啟）──────
 // 先把 plugin 設為全域 disabled，不影響平時畫面顯示效能
 Chart.register(ChartDataLabels);
@@ -437,12 +438,8 @@ async function updateScenarios(){
     analysisData.scenarios=sc;
     updateForecastTable(analysisData, d.scenarios);
     // 同步更新 MC 圖和預測數字表（情境改變後需重繪）
-    if(d.mc_result) analysisData.mc_result = d.mc_result;
-    if(d.bau_cagr != null){ analysisData.bau_cagr=d.bau_cagr; analysisData.sigma_data=d.sigma_data; }
     analysisData.scenarios = d.scenarios;
     renderFcTable(analysisData, analysisData.scenarios);
-    renderMC(analysisData.mc_result, analysisData.fc_years, analysisData.hist_years.length);
-    renderZA(analysisData.za_result, analysisData.bau_cagr, analysisData.sigma_data);
     renderValidation(analysisData);
     if(document.getElementById('exportPanel').style.display==='block') buildExportPanel();
   }catch(e){showErr('情境更新失敗：'+e.message)}
@@ -791,9 +788,6 @@ function render(d){
 
   renderValidation(d);
   renderFcTable(d, sc);
-  renderOosDm(d.dm_result);
-  renderMC(d.mc_result, d.fc_years, d.hist_years.length);
-  renderZA(d.za_result, d.bau_cagr, d.sigma_data);
 
   document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -1028,56 +1022,204 @@ function renderValidation(d) {
   document.getElementById('validationSection').style.display='';
 }
 
+// ══════════════════════════════════════════════════════
+// 完整數據表（歷史 + ARIMA預測 + 三情境 + 氣體分解）
+// ══════════════════════════════════════════════════════
+let _fcShowHist = false;
+function toggleHistRows() {
+  _fcShowHist = !_fcShowHist;
+  document.querySelectorAll('.fc-hist-row').forEach(r => {
+    r.style.display = _fcShowHist ? '' : 'none';
+  });
+  document.getElementById('fcToggleHist').textContent = _fcShowHist ? '隱藏歷史' : '顯示歷史';
+}
+
 function renderFcTable(d, sc) {
-  const fy = d.fc_years || [];
-  const keyYears = new Set([2030, 2035, 2040, 2045, 2050]);
+  if(!d || !d.fc_years) return;
+  const fy  = d.fc_years  || [];
+  const hy  = d.hist_years|| [];
+  const KEY = new Set([2030,2040,2050]);
+  const MID = new Set([2025,2035,2045]);
+  const fmt = v => v!=null && !isNaN(v) ? Number(Math.round(v)).toLocaleString('zh-TW') : '—';
+  const fmtPct = (a,b) => (a!=null&&b!=null&&b!==0) ? ((a-b)/b*100).toFixed(1)+'%' : '—';
+
+  // gas 欄位是否有資料
+  const GAS = ['co2','ch4','n2o','hfc','pfc','sf6','nf3'];
+  const GAS_LABEL = ['CO₂','CH₄','N₂O','HFCs','PFCs','SF₆','NF₃'];
+  const GAS_COLOR = ['#60a5fa','#34d399','#f472b6','#fbbf24','#a78bfa','#fb7185','#14b8a6'];
+  const hasGas = GAS.map(k => {
+    const g = d.gas_results?.[k];
+    return g && !g.skipped && !g.error && g.forecast?.length > 0;
+  });
+  const anyGas = hasGas.some(Boolean);
+
+  // 模型 badge
+  const modelBadge = document.getElementById('fcTableModelBadge');
+  if(modelBadge) {
+    const m = d.model_info?.best_model || 'log_arima';
+    const aic = d.model_info?.model_aic;
+    modelBadge.textContent = `${m==='log_arima'?'log-ARIMA':'ETS'}  AIC=${aic!=null?Number(aic).toFixed(1):'—'}`;
+  }
+
+  // 統計摘要
+  const sumEl = document.getElementById('fcTableSummary');
+  if(sumEl && d.hist_total?.length) {
+    const base = d.hist_total[d.hist_total.length-1];
+    const fc2030 = fy.indexOf(2030) >= 0 ? d.fc_total[fy.indexOf(2030)] : null;
+    const fc2050 = fy.indexOf(2050) >= 0 ? d.fc_total[fy.indexOf(2050)] : null;
+    const mape = d.model_info?.validation?.mape;
+    const items = [
+      {l:'基準年排放', v: fmt(base)+' kt', c:'#e2e8f0'},
+      {l:'2030 預測',  v: fc2030!=null ? fmt(fc2030)+' kt' : '—', c:'#38bdf8'},
+      {l:'vs 基準年',  v: fmtPct(fc2030,base), c: fc2030<base?'#4ade80':'#f87171'},
+      {l:'2050 預測',  v: fc2050!=null ? fmt(fc2050)+' kt' : '—', c:'#a78bfa'},
+      {l:'vs 基準年',  v: fmtPct(fc2050,base), c: fc2050<base?'#4ade80':'#f87171'},
+      {l:'樣本內MAPE', v: mape!=null ? mape+'%' : '—', c:'#fbbf24'},
+      {l:'BAU CAGR',   v: d.bau_cagr!=null ? (d.bau_cagr>=0?'+':'')+d.bau_cagr.toFixed(3)+'%' : '—', c:'#f59e0b'},
+    ];
+    sumEl.innerHTML = items.map(x=>`
+      <div style="background:#0a0e17;border:1px solid #1e293b;border-radius:6px;
+                  padding:6px 12px;min-width:100px">
+        <div style="font-size:10px;color:#475569;margin-bottom:2px">${x.l}</div>
+        <div style="font-size:13px;font-family:'JetBrains Mono',monospace;
+                    font-weight:600;color:${x.c}">${x.v}</div>
+      </div>`).join('');
+  }
 
   // 表頭
+  const gasThs = anyGas ? GAS.map((k,i) => hasGas[i]
+    ? `<th style="color:${GAS_COLOR[i]};padding:6px 8px;white-space:nowrap">${GAS_LABEL[i]} (kt)</th>`
+    : '').join('') : '';
+
   document.getElementById('fcTableHead').innerHTML = `<tr>
-    <th style="text-align:center">年份</th>
-    <th>點估計 (kt)</th><th>上界 95%</th><th>下界 95%</th>
-    <th style="color:#f59e0b">BAU</th>
-    <th style="color:#38bdf8">積極政策</th>
-    <th style="color:#00e5c0">NDC 淨零</th>
+    <th style="text-align:center;padding:6px 10px;min-width:52px">年份</th>
+    <th style="text-align:right;padding:6px 10px;color:#94a3b8">實際排放</th>
+    <th style="text-align:right;padding:6px 10px;color:#38bdf8">ARIMA預測</th>
+    <th style="text-align:right;padding:6px 10px;color:#475569">95%上界</th>
+    <th style="text-align:right;padding:6px 10px;color:#475569">95%下界</th>
+    <th style="text-align:right;padding:6px 10px;color:#64748b">CI寬度</th>
+    <th style="text-align:right;padding:6px 10px;color:#f59e0b">BAU</th>
+    <th style="text-align:right;padding:6px 10px;color:#38bdf8">積極政策</th>
+    <th style="text-align:right;padding:6px 10px;color:#00e5c0">NDC淨零</th>
+    <th style="text-align:right;padding:6px 10px;color:#94a3b8">年變動率</th>
+    ${gasThs}
   </tr>`;
 
-  // 表身
-  const rows = fy.map((yr, i) => {
-    const isKey = keyYears.has(yr);
-    const cls   = isKey ? 'hi-row' : '';
-    const fc    = d.fc_total[i]; const up = d.fc_upper[i]; const lo = d.fc_lower[i];
-    const bau   = sc?.bau?.values?.[i];
-    const pol   = sc?.policy?.values?.[i];
-    const ndc   = sc?.ndc?.values?.[i];
-    const fmt2  = v => v!=null ? Number(v).toLocaleString('zh-TW',{maximumFractionDigits:0}) : '—';
-    return `<tr class="${cls}">
-      <td>${yr}${isKey?'<span style="color:#a78bfa;margin-left:4px">★</span>':''}</td>
-      <td>${fmt2(fc)}</td><td style="color:#475569">${fmt2(up)}</td><td style="color:#475569">${fmt2(lo)}</td>
-      <td style="color:#f59e0b">${fmt2(bau)}</td>
-      <td style="color:#38bdf8">${fmt2(pol)}</td>
-      <td style="color:#00e5c0">${fmt2(ndc)}</td>
+  // 歷史行
+  const histRows = hy.map((yr,i) => {
+    const isKey = KEY.has(yr);
+    const v = d.hist_total?.[i];
+    const prev = i>0 ? d.hist_total[i-1] : null;
+    const chg = (v!=null&&prev!=null&&prev!==0) ? ((v-prev)/prev*100).toFixed(2)+'%' : '—';
+    const chgCol = (v!=null&&prev!=null) ? (v<prev?'#4ade80':'#f87171') : '#475569';
+    const gasVals = anyGas ? GAS.map((k,gi) => {
+      if(!hasGas[gi]) return '';
+      const hg = d.history_table?.[i];
+      const gv = hg?.[k];
+      return `<td style="text-align:right;padding:4px 8px;color:${GAS_COLOR[gi]};opacity:.8">${fmt(gv)}</td>`;
+    }).join('') : '';
+    const bg = isKey ? 'background:rgba(167,139,250,.06)' : (i%2===0?'':'background:rgba(255,255,255,.015)');
+    const fw = isKey ? 'font-weight:600' : '';
+    return `<tr class="fc-hist-row" style="${bg};${fw};display:${_fcShowHist?'':'none'}">
+      <td style="text-align:center;padding:4px 10px;color:${isKey?'#a78bfa':'#64748b'}">${yr}${isKey?'★':''}</td>
+      <td style="text-align:right;padding:4px 10px;color:#e2e8f0">${fmt(v)}</td>
+      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
+      <td style="text-align:right;padding:4px 10px;color:${chgCol}">${chg}</td>
+      ${gasVals}
     </tr>`;
   }).join('');
 
-  document.getElementById('fcTableBody').innerHTML = rows;
-  document.getElementById('fcTableCard').style.display='';
+  // 預測行
+  const fcRows = fy.map((yr,i) => {
+    const isKey = KEY.has(yr);
+    const isMid = MID.has(yr);
+    const fc = d.fc_total?.[i];
+    const up = d.fc_upper?.[i];
+    const lo = d.fc_lower?.[i];
+    const ci = (up!=null&&lo!=null) ? fmt(up-lo) : '—';
+    const bau = sc?.bau?.values?.[i];
+    const pol = sc?.policy?.values?.[i];
+    const ndc = sc?.ndc?.values?.[i];
+    // 年變動率：與前一年比（fc[i-1] 或 最後歷史值）
+    const prev = i>0 ? d.fc_total[i-1] : d.hist_total?.[d.hist_total.length-1];
+    const chg = (fc!=null&&prev!=null&&prev!==0) ? ((fc-prev)/prev*100).toFixed(2)+'%' : '—';
+    const chgCol = (fc!=null&&prev!=null) ? (fc<prev?'#4ade80':'#f87171') : '#475569';
+    const gasVals = anyGas ? GAS.map((k,gi) => {
+      if(!hasGas[gi]) return '';
+      const gv = d.gas_results?.[k]?.forecast?.[i];
+      return `<td style="text-align:right;padding:4px 8px;color:${GAS_COLOR[gi]}">${fmt(gv)}</td>`;
+    }).join('') : '';
+    const bg  = isKey ? 'background:rgba(167,139,250,.12)' : isMid ? 'background:rgba(56,189,248,.04)' : (i%2===0?'':'background:rgba(255,255,255,.015)');
+    const fw  = isKey ? 'font-weight:700' : '';
+    const star = isKey ? '★' : isMid ? '·' : '';
+    const starCol = isKey ? '#a78bfa' : '#475569';
+    return `<tr class="fc-fc-row" style="${bg};${fw}">
+      <td style="text-align:center;padding:4px 10px;color:${starCol}">${yr}${star}</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#38bdf8;font-weight:${isKey?700:400}">${fmt(fc)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#64748b">${fmt(up)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#64748b">${fmt(lo)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#475569">${ci}</td>
+      <td style="text-align:right;padding:4px 10px;color:#f59e0b">${fmt(bau)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#38bdf8">${fmt(pol)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#00e5c0">${fmt(ndc)}</td>
+      <td style="text-align:right;padding:4px 10px;color:${chgCol}">${chg}</td>
+      ${gasVals}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('fcTableBody').innerHTML = histRows + fcRows;
+  document.getElementById('fcTableCard').style.display = '';
 }
 
-// CSV 匯出
+// CSV 匯出（完整版）
 function exportFcTableCsv() {
   if(!analysisData) return;
-  const d = analysisData; const sc = d.scenarios||{};
-  const rows = [['年份','點估計(kt)','上界95%','下界95%','BAU','積極政策','NDC淨零']];
-  (d.fc_years||[]).forEach((yr,i) => {
-    rows.push([yr,
-      d.fc_total?.[i]??'', d.fc_upper?.[i]??'', d.fc_lower?.[i]??'',
-      sc.bau?.values?.[i]??'', sc.policy?.values?.[i]??'', sc.ndc?.values?.[i]??''
-    ]);
+  const d  = analysisData;
+  const sc = d.scenarios;
+  const GAS = ['co2','ch4','n2o','hfc','pfc','sf6','nf3'];
+  const hasGas = GAS.map(k => {
+    const g = d.gas_results?.[k];
+    return g && !g.skipped && !g.error && g.forecast?.length > 0;
   });
-  const csv = rows.map(r=>r.join(',')).join('\n');
+  const gasHdr = GAS.filter((_,i)=>hasGas[i]).map(k=>k.toUpperCase()+'(kt)');
+  const hdr = ['年份','資料類型','實際排放(kt)','ARIMA預測(kt)',
+               '95%上界','95%下界','CI寬度','年變動率%',
+               'BAU(kt)','積極政策(kt)','NDC淨零(kt)', ...gasHdr];
+  const rows = [hdr];
+  // 歷史行
+  (d.hist_years||[]).forEach((yr,i) => {
+    const v = d.hist_total?.[i] ?? '';
+    const prev = i>0 ? d.hist_total[i-1] : null;
+    const chg = (v!==''&&prev!=null&&prev!==0) ? ((v-prev)/prev*100).toFixed(3) : '';
+    const gasVals = GAS.filter((_,gi)=>hasGas[gi]).map(k => d.history_table?.[i]?.[k] ?? '');
+    rows.push([yr,'歷史實測',v,'','','','',chg,'','','', ...gasVals]);
+  });
+  // 預測行
+  (d.fc_years||[]).forEach((yr,i) => {
+    const fc = d.fc_total?.[i] ?? '';
+    const up = d.fc_upper?.[i] ?? '';
+    const lo = d.fc_lower?.[i] ?? '';
+    const ci = (up!==''&&lo!=='') ? Math.round(up-lo) : '';
+    const prev = i>0 ? d.fc_total[i-1] : d.hist_total?.[d.hist_total.length-1];
+    const chg = (fc!==''&&prev!=null&&prev!==0) ? ((fc-prev)/prev*100).toFixed(3) : '';
+    const bau = sc?.bau?.values?.[i] ?? '';
+    const pol = sc?.policy?.values?.[i] ?? '';
+    const ndc = sc?.ndc?.values?.[i] ?? '';
+    const gasVals = GAS.filter((_,gi)=>hasGas[gi]).map(k => d.gas_results?.[k]?.forecast?.[i] ?? '');
+    rows.push([yr,'ARIMA預測','',fc,up,lo,ci,chg,bau,pol,ndc, ...gasVals]);
+  });
+  const csv = rows.map(r=>r.map(v=>String(v).includes(',')?`"${v}"`:v).join(',')).join('\n');
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-  a.download = 'GHG_forecast.csv'; a.click();
+  a.download = `GHG_forecast_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
 }
 
 function updateForecastTable(d, sc){
