@@ -10,7 +10,6 @@
 from flask import Flask, request
 import pandas as pd
 import numpy as np
-import statsmodels.api as sm
 import os, io, json, math, warnings
 warnings.filterwarnings("ignore")
 
@@ -470,7 +469,8 @@ def _model_validation(series, in_sample, model_obj=None, model_type="arima"):
     # Ljung-Box（lag 建議 min(10, n//5)）
     lb_lag = max(1, min(10, len(resid) // 5))
     try:
-        lb = sm.stats.acorr_ljungbox(resid, lags=[lb_lag], return_df=True)
+        import statsmodels.stats.diagnostic as sm_diag
+        lb = sm_diag.acorr_ljungbox(resid, lags=[lb_lag], return_df=True)
         lb_stat = float(lb["lb_stat"].iloc[0])
         lb_pval = float(lb["lb_pvalue"].iloc[0])
         lb_pass = lb_pval > 0.05   # True = 殘差為白噪音（好）
