@@ -431,7 +431,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 
 
   <!-- OOS驗證 + MC情境 + 方法論段落 -->
-  <div class="chart-grid-2" style="margin-bottom:14px" id="oosSection">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px" id="oosSection">
     <!-- OOS 樣本外驗證表 -->
     <div class="card" id="oosCard">
       <div class="card-title"><span class="card-dot" style="background:#fb923c"></span>樣本外驗證（Hold-out OOS）+ DM 檢定</div>
@@ -441,6 +441,11 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     <div class="card" id="mcCard">
       <div class="card-title"><span class="card-dot" style="background:#818cf8"></span>蒙地卡羅模擬（1,000 次）不確定性區間</div>
       <canvas id="cMC" height="150"></canvas>
+    </div>
+    <!-- ZA 斷點檢定 -->
+    <div class="card" id="zaCard">
+      <div class="card-title"><span class="card-dot" style="background:#f472b6"></span>Zivot-Andrews 結構斷點檢定</div>
+      <div id="zaBody" style="font-size:12px;color:#94a3b8;line-height:1.8"></div>
     </div>
   </div>
 

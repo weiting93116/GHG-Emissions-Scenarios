@@ -859,6 +859,37 @@ function renderMC(mc, fy, hLen) {
   }});
 }
 
+
+function renderZA(za, bau_cagr, sigma_data) {
+  const el = document.getElementById('zaBody'); if(!el) return;
+  if(!za || za.error){
+    el.innerHTML=`<span style="color:#f87171">${za?.error||'未執行'}</span>`; return;
+  }
+  const pCol = za.za_pval < 0.05 ? '#4ade80' : '#fbbf24';
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+      <tr><td style="padding:3px 8px;color:#94a3b8">ZA 統計量</td>
+          <td style="text-align:right;font-weight:600;color:#e2e8f0">${za.za_stat}</td></tr>
+      <tr style="background:#0a0e17">
+          <td style="padding:3px 8px;color:#94a3b8">p 值</td>
+          <td style="text-align:right;color:${pCol};font-weight:600">${za.za_pval}</td></tr>
+      <tr><td style="padding:3px 8px;color:#94a3b8">斷點年份</td>
+          <td style="text-align:right;color:#f472b6;font-weight:700">${za.bp_year??'—'}</td></tr>
+      <tr style="background:#0a0e17">
+          <td style="padding:3px 8px;color:#94a3b8">臨界值 5%</td>
+          <td style="text-align:right">${za.cv_5pct??'—'}</td></tr>
+    </table>
+    <div style="margin-top:6px;padding:6px 8px;background:#0a0e17;border-radius:4px;
+                border-left:3px solid ${pCol};font-size:11px">
+      ${za.conclusion}<br>
+      <span style="color:#475569">${za.arima_note}</span>
+    </div>
+    <div style="margin-top:6px;font-size:10.5px;color:#475569">
+      BAU CAGR（資料算）：<strong style="color:#f59e0b">${bau_cagr!=null?'+'+bau_cagr.toFixed(3)+'%':'N/A'}</strong>　
+      MC σ（資料算）：<strong style="color:#818cf8">${sigma_data!=null?sigma_data.toFixed(3)+'%':'N/A'}</strong><br>
+      ✦ 引用：Zivot &amp; Andrews (1992) JBES 10(3)
+    </div>`;
+}
 function renderMethodsText(methods) {
   if(!methods || methods.error) return;
   _methodsData = methods;
