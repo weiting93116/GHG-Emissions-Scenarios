@@ -70,6 +70,19 @@ def safe_json(data, status=200):
         response=json.dumps(nan_to_none(data), ensure_ascii=False),
         status=status, mimetype='application/json')
 
+@app.errorhandler(500)
+def handle_500(e):
+    resp = safe_json({"error": f"伺服器錯誤：{str(e)}"}, 500)
+    return resp  # apply_cors after_request 會自動加 CORS header
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    tb = traceback.format_exc()
+    print(f"UNHANDLED: {tb}")   # 印到 Render log
+    resp = safe_json({"error": str(e), "trace": tb[-500:]}, 500)
+    return resp
+
 # ── 數值清洗 ────────────────────────────────────────────
 _IPCC_NA = frozenset([
     'NE','NA','N/A','NO','IE','C','NO,IE','NE,IE',
@@ -664,7 +677,7 @@ def diebold_mariano_test(series, order, holdout=5):
 #   Saltelli et al. (2008) Global Sensitivity Analysis
 # ══════════════════════════════════════════════════════════════
 
-def monte_carlo_scenarios(base_val, steps, n_sim=1000, seed=42, sigma_data=None, bau_cagr=None):
+def monte_carlo_scenarios(base_val, steps, n_sim=200, seed=42, sigma_data=None, bau_cagr=None):
     """
     對三情境的折年率假設常態分布，執行蒙地卡羅模擬
     回傳各情境的 p5 / p25 / p50 / p75 / p95 百分位
