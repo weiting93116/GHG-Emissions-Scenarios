@@ -20,23 +20,41 @@ app = Flask(__name__)
 # 方法一（flask-cors）：自動處理所有路由的 CORS headers
 # 方法二（Render 環境變數）：設定 ALLOWED_ORIGINS 精確控制允許來源
 # 兩個同時啟用，互補保險
-_allowed = os.environ.get('ALLOWED_ORIGINS', '*')
+# ── CORS：三層保護，解決 Render 冷啟動 + 環境變數空格問題 ──
+_raw_origins = os.environ.get('ALLOWED_ORIGINS', '*')
+# strip 每個 origin，避免環境變數有多餘空格
+_allowed_list = [o.strip() for o in _raw_origins.split(',') if o.strip()]
+_allow_all    = (_raw_origins.strip() == '*') or not _allowed_list
+
+# flask-cors 層
 CORS(app,
-     origins=_allowed.split(',') if _allowed != '*' else '*',
+     origins='*' if _allow_all else _allowed_list,
      supports_credentials=False,
      methods=['GET','POST','OPTIONS'],
-     allow_headers=['Content-Type'])
+     allow_headers=['Content-Type','Accept'])
 
+# after_request 層（雙保險，補 flask-cors 漏網）
 @app.after_request
 def add_cors_headers(response):
-    origin = request.headers.get('Origin', '')
-    if _allowed == '*':
-        response.headers['Access-Control-Allow-Origin'] = '*'
-    elif origin in _allowed.split(','):
-        response.headers['Access-Control-Allow-Origin'] = origin
+    origin = request.headers.get('Origin', '').strip()
+    if _allow_all or origin in _allowed_list:
+        response.headers['Access-Control-Allow-Origin'] = origin if origin else '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
+    response.headers['Access-Control-Max-Age'] = '86400'
     return response
+
+# OPTIONS preflight 路由（Render nginx proxy 有時不會自動處理）
+@app.route('/api/<path:dummy>', methods=['OPTIONS'])
+def handle_preflight(dummy):
+    resp = app.make_default_options_response()
+    origin = request.headers.get('Origin', '').strip()
+    if _allow_all or origin in _allowed_list:
+        resp.headers['Access-Control-Allow-Origin'] = origin if origin else '*'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
+    resp.headers['Access-Control-Max-Age'] = '86400'
+    return resp
 
 # ── JSON 工具 ───────────────────────────────────────────
 def nan_to_none(obj):
@@ -799,7 +817,10 @@ def generate_methods_text(ts, orr, fc, dm_result, mc_result, scenarios, hy, za_r
 
     # ZA 結果段落
     za_str_en = za_str_zh = ""
-    if za_result and not za_result.get('error'):
+    if za_result and za_result.get('skipped'):
+        za_str_en = f"The Zivot-Andrews structural break test was not conducted: {za_result.get('reason', 'insufficient observations')}."
+        za_str_zh = f"Zivot-Andrews 結構斷點檢定未執行：{za_result.get('reason', '樣本數不足')}。"
+    elif za_result and not za_result.get('error'):
         za_str_en = (
             f"A Zivot-Andrews (1992) structural break test was conducted to identify "
             f"potential regime shifts in the emission series. The test statistic was "
@@ -1213,7 +1234,9 @@ def analyze():
 
     # ── 蒙地卡羅情境模擬（1000次）──
     try:
-        mc_result = monte_carlo_scenarios(float(ts[-1]), steps, n_sim=1000, sigma_data=sigma_data, bau_cagr=bau_cagr)
+        # n_sim：本地/高效能環境用1000，Render免費方案建議500
+        mc_n_sim = int(500)
+        mc_result = monte_carlo_scenarios(float(ts[-1]), steps, n_sim=mc_n_sim, sigma_data=sigma_data, bau_cagr=bau_cagr)
     except Exception as e:
         mc_result = {"error": str(e)}
 
@@ -1361,11 +1384,33 @@ def scenarios_only():
     if 'file' not in request.files: return safe_json({"error":"未收到檔案"},400)
     try: dfc=_load_and_prep(request)
     except Exception as e: return safe_json({"error":str(e)},400)
-    ts=dfc['total'].values.astype(float); ly=dfc['year'].tolist()[-1]
+    ts=dfc['total'].values.astype(float)
+    hy=dfc['year'].tolist(); ly=hy[-1]
     steps=2050-ly
     params=_get_adef_params(request)
+    # 重新計算 bau_cagr（與 /api/analyze 邏輯一致）
+    try:
+        ref_years = np.array(hy); ref_ts = ts.copy()
+        mask = (ref_years >= 2005) & (ref_years <= 2019)
+        if mask.sum() >= 5:
+            y0 = ref_ts[mask][0]; yn = ref_ts[mask][-1]
+            bau_cagr = float((yn / y0) ** (1.0 / (mask.sum()-1)) - 1)
+        elif len(ts) >= 5:
+            bau_cagr = float((ts[-1] / ts[0]) ** (1.0 / (len(ts)-1)) - 1)
+        else:
+            bau_cagr = 0.0
+        sigma_data = float(np.std(np.diff(ts) / ts[:-1], ddof=1)) if len(ts) > 2 else 0.008
+    except Exception:
+        bau_cagr = 0.004; sigma_data = 0.008
     scenarios=adef_scenarios(ts[-1], steps, params, bau_cagr=bau_cagr)
-    return safe_json({"scenarios":scenarios})
+    mc_result = None
+    try:
+        mc_result = monte_carlo_scenarios(float(ts[-1]), steps, n_sim=500,
+                                          sigma_data=sigma_data, bau_cagr=bau_cagr)
+    except Exception: pass
+    return safe_json({"scenarios": scenarios, "mc_result": mc_result,
+                      "bau_cagr": round(bau_cagr*100, 3),
+                      "sigma_data": round(sigma_data*100, 3)})
 
 @app.route('/api/health')
 def health():
