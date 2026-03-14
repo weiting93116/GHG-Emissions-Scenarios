@@ -324,13 +324,22 @@ def build_exp(p, d, q, d_reason, d_tests, n, method="BIC"):
 # ══════════════════════════════════════════════════════════
 
 def _fit_log_arima(series, order, steps):
-    """log-ARIMA，文獻：Box & Jenkins (1976)"""
+    """
+    log-ARIMA，文獻：Box & Jenkins (1976)
+    trend='ct' 加入截距與線性趨勢項（Random Walk with Drift）
+    當 p=0,d=1,q=0 時等同 ARIMA(0,1,0)+c，即 Random Walk with Drift
+    截距 c 由 MLE 估計歷史平均年變動量，使外推帶有方向性
+    文獻：Malkiel (1973)；Hyndman & Athanasopoulos (2021) ch.9
+    """
     from statsmodels.tsa.arima.model import ARIMA as SM_ARIMA
     s_min = float(np.nanmin(series))
     epsilon = max(1.0, abs(s_min)/1000) if s_min<=0 else 0.0
     log_s = np.log(series + epsilon)
     p, d, q = order[0], min(order[1], 1), order[2]
-    model = SM_ARIMA(log_s, order=(p,d,q)).fit(method_kwargs={"warn_convergence":False})
+    # trend='c'：加入常數項（drift），使預測帶有歷史平均漂移方向
+    # 當序列近年呈下降趨勢時，截距為負值，外推結果向下而非向上
+    model = SM_ARIMA(log_s, order=(p,d,q), trend='c').fit(
+        method_kwargs={"warn_convergence":False})
     fc_obj = model.get_forecast(steps=steps)
     log_mu = fc_obj.predicted_mean.values
     log_ci = fc_obj.conf_int(alpha=0.05).values
@@ -485,8 +494,15 @@ def select_best_model(series, order, steps):
 
     if not results:
         fc = _arima_fallback(series, order, steps)
-        fc.update({'fit_errors':errors,'best_model':'fallback',
-                   'used_order':order,'validation':{},'oos_rmse':{}})
+        fc.update({
+            'fit_errors':  errors,
+            'best_model':  'fallback',
+            'best_model_label': 'Random Walk with Drift（RWD）',
+            'used_order':  order,
+            'validation':  {},
+            'oos_rmse':    {},
+            'selection_method': 'Random Walk with Drift（三模型均失敗，退回 RWD 基準模型）',
+        })
         return fc
 
     # ── OOS RMSE 選模 ──
@@ -549,12 +565,26 @@ def select_best_model(series, order, steps):
 
 
 def _arima_fallback(series, order, steps):
-    """純手工 AR 預測，所有模型失敗時使用"""
+    """
+    Random Walk with Drift（RWD）基準模型
+    當三個主模型均失敗時使用
+    等同於 ARIMA(0,1,0)+c：
+      Δy_t = c + ε_t
+      c = 歷史差分序列均值（MLE 估計的漂移量）
+    p=0 時預測 = 上期值 + c（帶方向性的隨機遊走）
+    文獻：
+      Malkiel (1973) A Random Walk Down Wall Street
+      Diebold & Mariano (1995) JBES — RWD 為標準基準模型
+      Hyndman & Athanasopoulos (2021) ch.9 — Random walk with drift
+    """
     p, d, q = order
     s = series[~np.isnan(series)].astype(float)
     sd = s.copy()
     for _ in range(min(d,1)): sd = np.diff(sd)
-    n = len(sd); ms = np.mean(sd); ar = np.zeros(p)
+    n = len(sd)
+    # ms = 差分序列均值 = 漂移項 c（MLE 估計）
+    # 近年下降趨勢時 ms < 0，外推結果帶下降方向
+    ms = np.mean(sd); ar = np.zeros(p)
     if p > 0 and n > p:
         X = np.column_stack([sd[p-i-1:n-i-1] for i in range(p)])
         try: ar,_,_,_ = np.linalg.lstsq(X, sd[p:], rcond=None)
@@ -563,6 +593,7 @@ def _arima_fallback(series, order, steps):
              if p > 0 and n > p else sd - ms)
     sigma = np.std(resid); ext = list(sd); fd = []
     for _ in range(steps):
+        # p=0 時：預測增量 = ms（歷史平均漂移），即 RWD
         ap = np.dot(ar, ext[-p:][::-1]) if p > 0 else ms
         fd.append(ap); ext.append(ap)
     preds = []
@@ -571,10 +602,11 @@ def _arima_fallback(series, order, steps):
         else: preds.append((s[-1] if i==0 else preds[-1]) + f)
     preds = np.array(preds); sq = np.sqrt(np.arange(1, steps+1))
     return {
-        "forecast": [round(float(v),2) for v in np.maximum(preds,0)],
-        "upper95":  [round(float(v),2) for v in preds+1.96*sigma*sq],
-        "lower95":  [round(float(v),2) for v in np.maximum(preds-1.96*sigma*sq,0)],
-        "sigma":    round(float(sigma),4),
+        "forecast":   [round(float(v),2) for v in np.maximum(preds,0)],
+        "upper95":    [round(float(v),2) for v in preds+1.96*sigma*sq],
+        "lower95":    [round(float(v),2) for v in np.maximum(preds-1.96*sigma*sq,0)],
+        "sigma":      round(float(sigma),4),
+        "model_note": "Random Walk with Drift (ARIMA(0,1,0)+c)，漂移項 c={:.4f}（歷史差分均值）".format(float(ms)),
     }
 
 
@@ -759,10 +791,20 @@ def generate_methods_text(ts, orr, fc, dm_result, mc_result,
     d_reason=orr.get('d_reason','ADF+KPSS'); d_tests=orr.get('d_tests',{})
     adf_p =d_tests.get('adf_orig', {}).get('p','—')
     kpss_p=d_tests.get('kpss_orig',{}).get('p','—')
-    model_map={"log_arima":f"log-ARIMA({up},{ud},{uq})",
-               "ets":fc.get('ets_spec','ETS'),"holt":fc.get('holt_spec','Holt(damped=True)'),
-               "fallback":"ARIMA fallback"}
-    model_zh=model_en=model_map.get(best_m,best_m)
+    model_map={
+        "log_arima": f"log-ARIMA({up},{ud},{uq})+c（帶截距）",
+        "ets":       fc.get('ets_spec','ETS'),
+        "holt":      fc.get('holt_spec','Holt(damped=True)'),
+        "fallback":  "Random Walk with Drift ARIMA(0,1,0)+c",
+    }
+    model_map_en={
+        "log_arima": f"log-ARIMA({up},{ud},{uq}) with drift (trend='c')",
+        "ets":       fc.get('ets_spec','ETS'),
+        "holt":      fc.get('holt_spec','Holt(damped=True)'),
+        "fallback":  "Random Walk with Drift (ARIMA(0,1,0)+c)",
+    }
+    model_zh=model_map.get(best_m,best_m)
+    model_en=model_map_en.get(best_m,best_m)
     mape_str=f"{val.get('mape','N/A')}%" if val.get('mape') else "N/A"
     rmse_str=f"{val.get('rmse','N/A'):,} kt" if val.get('rmse') else "N/A"
     lb_str=(f"Q({val.get('lb_lag',10)})={val.get('lb_stat','N/A')}, "
