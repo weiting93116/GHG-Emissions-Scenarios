@@ -1018,9 +1018,21 @@ function renderFcTable(d, sc) {
 
   const modelBadge = document.getElementById('fcTableModelBadge');
   if(modelBadge) {
-    const m = d.model_info?.best_model || 'log_arima';
-    const aic = d.model_info?.model_aic;
-    modelBadge.textContent = `${m==='log_arima'?'log-ARIMA':'ETS'}  AIC=${aic!=null?Number(aic).toFixed(1):'—'}`;
+    const mi2 = d.model_info || {};
+    const bm2 = mi2.best_model || '';
+    const bmLabel2 = {
+      'log_arima': `log-ARIMA(${mi2.arima_order?.p},${mi2.arima_order?.d},${mi2.arima_order?.q})+c`,
+      'ets':       mi2.ets_spec  || 'ETS',
+      'holt':      mi2.holt_spec || 'Holt(damped)',
+      'fallback':  'RWD ARIMA(0,1,0)+c',
+    }[bm2] || bm2;
+    const bmColor2 = {'log_arima':'#38bdf8','ets':'#a78bfa','holt':'#4ade80','fallback':'#f59e0b'}[bm2]||'#94a3b8';
+    const oos2 = mi2.oos_rmse || {};
+    const oosStr2 = bm2 && oos2[bm2] ? ` · OOS RMSE=${oos2[bm2]}` : '';
+    modelBadge.textContent = `✓ ${bmLabel2}${oosStr2}`;
+    modelBadge.style.color = bmColor2;
+    modelBadge.style.borderColor = bmColor2 + '55';
+    modelBadge.style.background = bmColor2 + '11';
   }
 
   const sumEl = document.getElementById('fcTableSummary');
@@ -1175,33 +1187,9 @@ function exportFcTableCsv() {
 }
 
 function updateForecastTable(d, sc){
-  const fLen=d.fc_years.length;
-  let rows='', first=true;
-  d.history_table.forEach(r=>{
-    rows+=`<tr class="hist-row"><td>${r.year}</td>
-      <td>${r.co2!=null?fmtN(r.co2):'<span class="null-val">—</span>'}</td>
-      <td>${r.ch4!=null?fmtN(r.ch4):'<span class="null-val">—</span>'}</td>
-      <td>${r.n2o!=null?fmtN(r.n2o):'<span class="null-val">—</span>'}</td>
-      <td class="${r.land!=null&&r.land<0?'neg-val':''}">${r.land!=null?fmtN(r.land):'<span class="null-val">—</span>'}</td>
-      <td>${r.total!=null?fmtN(r.total):'<span class="null-val">—</span>'}</td>
-      <td class="${r.net<0?'neg-val':''}">${r.net!=null?fmtN(r.net):'<span class="null-val">—</span>'}</td>
-      <td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td>
-      <td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td>
-      <td style="color:var(--muted);font-size:10px">歷史</td></tr>`;
-  });
-  d.forecast_table.forEach((r,i)=>{
-    const cls=first?'fc-row divider':'fc-row'; first=false;
-    rows+=`<tr class="${cls}"><td>${r.year}</td>
-      <td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td><td class="null-val">—</td>
-      <td class="null-val">—</td><td class="null-val">—</td>
-      <td>${fmtN(r.total)}</td><td>${fmtN(r.upper95)}</td><td>${fmtN(r.lower95)}</td>
-      <td style="color:#f59e0b">${sc?fmtN(sc.bau.values[i]):'—'}</td>
-      <td style="color:#38bdf8">${sc?fmtN(sc.policy.values[i]):'—'}</td>
-      <td style="color:#00e5c0">${sc?fmtN(sc.ndc.values[i]):'—'}</td>
-      <td style="color:var(--sky);font-size:10px">預測</td></tr>`;
-  });
-  document.getElementById('forecastTbody').innerHTML=rows;
+  // 舊版表格已移除，此函式保留為空以避免呼叫錯誤
 }
+
 
 function updateMainChartScenarios(sc, fcYears){
   const c=charts['mainChart']; if(!c)return;

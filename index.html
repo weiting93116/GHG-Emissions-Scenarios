@@ -540,21 +540,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
     </div>
   </div>
 
-  <!-- 舊版數據表（保留相容） -->
-  <div class="table-section">
-    <h3>📋 歷史數據 + ARIMA 預測表（至 2050）</h3>
-    <div class="tbl-wrap">
-      <table class="fc-table">
-        <thead><tr>
-          <th>年份</th><th>CO₂ (kt)</th><th>CH₄ (kt)</th><th>N₂O (kt)</th>
-          <th>土地匯 (kt)</th><th>總排放量 (kt)</th><th>淨排放量 (kt)</th>
-          <th>ARIMA 中位</th><th>上界 95%</th><th>下界 95%</th>
-          <th>BAU (AD-EF)</th><th>積極政策</th><th>NDC</th><th>類型</th>
-        </tr></thead>
-        <tbody id="forecastTbody"></tbody>
-      </table>
-    </div>
-  </div>
+  <!-- 舊版數據表已移除，請使用上方完整數據表 -->
 
 </div><!-- /results -->
 </div><!-- /wrap -->
@@ -563,7 +549,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 (function(){
   var s = document.createElement('script');
   var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
-  var v='?v=1773479960908v4'; s.src = isLocal ? 'main.js'+v : '/GHG-Emissions-Scenarios/main.js'+v;
+  var v='?v=1773483208724v5'; s.src = isLocal ? 'main.js'+v : '/GHG-Emissions-Scenarios/main.js'+v;
   s.onerror = function(){ var s2=document.createElement('script'); s2.src='main.js'; document.body.appendChild(s2); };
   document.body.appendChild(s);
 })();
