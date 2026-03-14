@@ -641,92 +641,136 @@ function render(d){
 // ════════════════════════════════════════════════════════
 function renderOosDm(dm) {
   const el = document.getElementById('oosBody'); if(!el) return;
-  if(!dm){
-    el.innerHTML='<span style="color:var(--muted)">未執行</span>'; return;
-  }
-  if(dm.skipped){
-    el.innerHTML=`<div style="color:#fbbf24;font-size:11px;padding:8px;background:#1a1400;border-radius:4px">⚠️ ${dm.reason}</div>`; return;
-  }
-  if(dm.error){
-    el.innerHTML=`<div style="color:#f87171;font-size:11px">❌ ${dm.error}</div>`; return;
-  }
-  const oos = dm.oos||{}; const la = oos.log_arima||{}; const et = oos.ets||{};
-  const pCol = dm.hln_pval < 0.05 ? '#4ade80' : '#fbbf24';
-  el.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:11px">
+  if(!dm){ el.innerHTML='<span style="color:var(--muted)">未執行</span>'; return; }
+  if(dm.skipped){ el.innerHTML=`<div style="color:#fbbf24;font-size:11px;padding:8px;background:#1a1400;border-radius:4px">⚠️ ${dm.reason}</div>`; return; }
+  if(dm.error){ el.innerHTML=`<div style="color:#f87171;font-size:11px">❌ ${dm.error}</div>`; return; }
+
+  // v4：dm.oos 含三模型，dm.arima_vs_ets / arima_vs_holt / ets_vs_holt
+  const oos = dm.oos||{};
+  const la=oos.log_arima||{}; const et=oos.ets||{}; const ho=oos.holt||{};
+  const ave=dm.arima_vs_ets||{}; const avh=dm.arima_vs_holt||{}; const evh=dm.ets_vs_holt||{};
+  const oos_rmse=analysisData?.model_info?.oos_rmse||{};
+  const sel_meth=analysisData?.model_info?.selection_method||'OOS RMSE';
+  const best_m=analysisData?.model_info?.best_model||'';
+  const bestColor={'log_arima':'#38bdf8','ets':'#a78bfa','holt':'#4ade80'}[best_m]||'#e2e8f0';
+  const bestLabel={'log_arima':`log-ARIMA(${analysisData?.model_info?.arima_order?.p},${analysisData?.model_info?.arima_order?.d},${analysisData?.model_info?.arima_order?.q})`,'ets':analysisData?.model_info?.ets_spec||'ETS','holt':analysisData?.model_info?.holt_spec||'Holt(damped=True)'}[best_m]||best_m;
+  const dmRow=(obj,label)=>{
+    if(!obj||obj.error) return `<div style="font-size:10px;color:#475569">${label}：資料不足</div>`;
+    const pc=obj.hln_pval<0.05?'#4ade80':'#fbbf24';
+    return `<div style="padding:3px 0;font-size:10.5px"><strong style="color:#94a3b8">${label}</strong>：HLN p=<strong style="color:${pc}">${obj.hln_pval??'—'}</strong>，${obj.conclusion||'—'}</div>`;
+  };
+  el.innerHTML=`
+    <div style="margin-bottom:6px;font-size:10px;color:#64748b">選模標準：${sel_meth}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
       <tr style="border-bottom:1px solid #1e293b">
-        <th style="text-align:left;color:#64748b;padding:3px 6px;font-weight:400">指標</th>
+        <th style="text-align:left;color:#64748b;padding:3px 6px;font-weight:400">OOS 指標</th>
         <th style="text-align:right;color:#38bdf8;padding:3px 6px">log-ARIMA</th>
         <th style="text-align:right;color:#a78bfa;padding:3px 6px">ETS</th>
+        <th style="text-align:right;color:#4ade80;padding:3px 6px">Holt</th>
       </tr>
-      <tr><td style="padding:3px 6px;color:#94a3b8">OOS MAPE (%)</td>
-        <td style="text-align:right">${la.mape??'—'}</td>
-        <td style="text-align:right">${et.mape??'—'}</td></tr>
-      <tr style="background:#0a0e17"><td style="padding:3px 6px;color:#94a3b8">OOS RMSE (kt)</td>
+      <tr><td style="padding:3px 6px;color:#94a3b8">MAPE (%)</td>
+        <td style="text-align:right;${best_m==='log_arima'?'color:#38bdf8;font-weight:700':''}">${la.mape??'—'}</td>
+        <td style="text-align:right;${best_m==='ets'?'color:#a78bfa;font-weight:700':''}">${et.mape??'—'}</td>
+        <td style="text-align:right;${best_m==='holt'?'color:#4ade80;font-weight:700':''}">${ho.mape??'—'}</td></tr>
+      <tr style="background:#0a0e17"><td style="padding:3px 6px;color:#94a3b8">RMSE (kt)</td>
         <td style="text-align:right">${la.rmse!=null?Number(la.rmse).toLocaleString():'—'}</td>
-        <td style="text-align:right">${et.rmse!=null?Number(et.rmse).toLocaleString():'—'}</td></tr>
-      <tr><td style="padding:3px 6px;color:#94a3b8">OOS MAE (kt)</td>
-        <td style="text-align:right">${la.mae!=null?Number(la.mae).toLocaleString():'—'}</td>
-        <td style="text-align:right">${et.mae!=null?Number(et.mae).toLocaleString():'—'}</td></tr>
+        <td style="text-align:right">${et.rmse!=null?Number(et.rmse).toLocaleString():'—'}</td>
+        <td style="text-align:right">${ho.rmse!=null?Number(ho.rmse).toLocaleString():'—'}</td></tr>
+      <tr><td style="padding:3px 6px;color:#94a3b8">OOS RMSE（選模）</td>
+        <td style="text-align:right;${best_m==='log_arima'?'color:#38bdf8;font-weight:700':''}">${oos_rmse.log_arima??'—'}</td>
+        <td style="text-align:right;${best_m==='ets'?'color:#a78bfa;font-weight:700':''}">${oos_rmse.ets??'—'}</td>
+        <td style="text-align:right;${best_m==='holt'?'color:#4ade80;font-weight:700':''}">${oos_rmse.holt??'—'}</td></tr>
     </table>
-    <div style="margin-top:7px;padding:7px 8px;background:#0a0e17;border-left:3px solid ${pCol};border-radius:0 4px 4px 0;font-size:11px">
-      <strong style="color:#e2e8f0">DM 檢定</strong>（HLN，h=${dm.h||'?'}期）<br>
-      統計量 = <strong>${dm.hln_stat??'—'}</strong>，
-      p = <strong style="color:${pCol}">${dm.hln_pval??'—'}</strong><br>
-      <span style="color:${pCol}">${dm.conclusion||'—'}</span>
+    <div style="background:#0a0e17;border-radius:4px;padding:7px 8px;font-size:10.5px;margin-bottom:6px">
+      <div style="color:#e2e8f0;margin-bottom:4px;font-weight:600">✓ 選用：<span style="color:${bestColor}">${bestLabel}</span>（OOS RMSE 最小）</div>
+      ${dmRow(ave,'ARIMA vs ETS')}
+      ${dmRow(avh,'ARIMA vs Holt')}
+      ${dmRow(evh,'ETS vs Holt')}
     </div>
-    <div style="margin-top:5px;font-size:10px;color:#475569">
-      Rolling origin，${oos.holdout_n||'?'} 期 Hold-out<br>
-      Diebold &amp; Mariano (1995)；Harvey et al. (1997)
-    </div>`;
+    <div style="font-size:10px;color:#475569">${oos.holdout_n||'?'} 期 rolling origin · DM檢定：Diebold &amp; Mariano (1995) · Harvey et al. (1997)</div>`;
 }
 
+
 // ════════════════════════════════════════════════════════
-// ── 蒙地卡羅情境模擬圖 ──────────────────────────────────
+// ── 蒙地卡羅情境模擬圖（v4：歷史 bootstrap）
 // ════════════════════════════════════════════════════════
 function renderMC(mc, fy, hLen) {
   if(!mc || !fy) return;
   if(mc.error){
-    const el = document.getElementById('mcCard');
-    if(el) el.querySelector('canvas').insertAdjacentHTML('beforebegin',
-      `<div style="color:#f87171;font-size:11px;margin-bottom:8px">MC 模擬失敗：${mc.error}</div>`);
+    const el=document.getElementById('mcCard');
+    if(el) el.querySelector('canvas')?.insertAdjacentHTML('beforebegin',
+      `<div style="color:#f87171;font-size:11px;margin-bottom:8px">MC 失敗：${mc.error}</div>`);
     return;
   }
-  const KEYS = [
-    {k:'bau',    p5c:'rgba(245,158,11,.15)', p50c:'#f59e0b', label:'BAU p50'},
-    {k:'policy', p5c:'rgba(56,189,248,.15)', p50c:'#38bdf8', label:'積極政策 p50'},
-    {k:'ndc',    p5c:'rgba(0,229,192,.15)',  p50c:'#00e5c0', label:'NDC淨零 p50'},
-  ];
-  const fLen = fy.length;
-  const allLabels = [...(analysisData?.hist_years||[]).map(String), ...fy.map(String)];
-  const datasets = [];
-  KEYS.forEach(({k, p5c, p50c, label}) => {
-    const s = mc[k]; if(!s) return;
-    const pad = v => [...Array(hLen).fill(null), ...v];
+  // v4：mc 是單一 bootstrap 結果（p5/p25/p50/p75/p95）
+  // 不再有 mc.bau / mc.policy / mc.ndc 三情境分開
+  const fLen=fy.length;
+  const allLabels=[...(analysisData?.hist_years||[]).map(String), ...fy.map(String)];
+  const pad=v=>[...Array(hLen).fill(null),...v];
+  const datasets=[];
+
+  // Bootstrap 不確定帶（p5~p95）
+  if(mc.p95 && mc.p5){
     datasets.push(
-      {label:'', data:pad(s.p95), borderColor:'transparent', backgroundColor:p5c, fill:'+1', pointRadius:0},
-      {label:'', data:pad(s.p5),  borderColor:'transparent', fill:false, pointRadius:0},
-      {label, data:pad(s.p50), borderColor:p50c, borderWidth:1.5, borderDash:[4,3], pointRadius:0, tension:0.3, fill:false},
+      {label:'Bootstrap p5–p95', data:pad(mc.p95), borderColor:'transparent',
+       backgroundColor:'rgba(56,189,248,0.12)', fill:'+1', pointRadius:0},
+      {label:'', data:pad(mc.p5), borderColor:'transparent', fill:false, pointRadius:0},
     );
-  });
-  // 加歷史實際排放線
+  }
+  // Bootstrap p25~p75
+  if(mc.p75 && mc.p25){
+    datasets.push(
+      {label:'Bootstrap p25–p75', data:pad(mc.p75), borderColor:'transparent',
+       backgroundColor:'rgba(56,189,248,0.18)', fill:'+1', pointRadius:0},
+      {label:'', data:pad(mc.p25), borderColor:'transparent', fill:false, pointRadius:0},
+    );
+  }
+  // Bootstrap 中位數
+  if(mc.p50){
+    datasets.push(
+      {label:`Bootstrap 中位數（n=${mc.n_sim||500}次）`,
+       data:pad(mc.p50), borderColor:'#38bdf8',
+       borderWidth:1.5, borderDash:[4,3], pointRadius:0, tension:0.3, fill:false}
+    );
+  }
+  // 歷史排放
   if(analysisData?.hist_total){
     datasets.push({
       label:'歷史排放', data:[...analysisData.hist_total,...Array(fLen).fill(null)],
-      borderColor:'rgba(255,255,255,.5)', borderWidth:1.5, pointRadius:0, tension:0.3, fill:false
+      borderColor:'rgba(255,255,255,.6)', borderWidth:2, pointRadius:0, tension:0.3, fill:false
     });
   }
-  mk('cMC', {type:'line', data:{labels:allLabels, datasets},
-    options:{...lopts('kt CO₂e', 1.8),
+  // ARIMA 預測主線
+  if(analysisData?.fc_total){
+    datasets.push({
+      label:`${analysisData?.model_info?.best_model||'ARIMA'} 預測`,
+      data:[...Array(hLen).fill(null),...analysisData.fc_total],
+      borderColor:'#00e5c0', borderWidth:1.5, borderDash:[6,3], pointRadius:0, tension:0.3, fill:false
+    });
+  }
+
+  mk('cMC',{type:'line',data:{labels:allLabels,datasets},
+    options:{...lopts('kt CO₂e',1.8),
       plugins:{...lopts('kt CO₂e',1.8).plugins,
-        legend:{display:true, labels:{
-          color:'#4a6070', font:{size:9}, boxWidth:10,
-          filter: item => item.text && item.text.length > 0
-        }}
+        legend:{display:true,labels:{color:'#4a6070',font:{size:9},boxWidth:10,
+          filter:item=>item.text&&item.text.length>0}}
       }
     }
   });
+
+  // 在圖表下方顯示 bootstrap 說明
+  const card=document.getElementById('mcCard');
+  if(card){
+    const existing=card.querySelector('.mc-caption');
+    if(existing) existing.remove();
+    const cap=document.createElement('div');
+    cap.className='mc-caption';
+    cap.style.cssText='margin-top:6px;font-size:10px;color:#475569;line-height:1.6';
+    cap.innerHTML=`歷史年變動率 bootstrap（${mc.n_hist_rates||'?'} 個觀測值，有放回，${mc.n_sim||500} 次）<br>無分布假設 · Efron &amp; Tibshirani (1993)`;
+    card.appendChild(cap);
+  }
 }
+
 
 // ════════════════════════════════════════════════════════
 // ── Zivot-Andrews 斷點檢定 ──────────────────────────────
@@ -804,89 +848,112 @@ function copyMethods() {
 // ── 模型驗證 + 情境引用卡片 ─────────────────────────────
 // ════════════════════════════════════════════════════════
 function renderValidation(d) {
-  const mi = d.model_info || {};
-  const val = mi.validation || {};
-  const sc  = d.scenarios || {};
+  const mi=d.model_info||{}; const val=mi.validation||{}; const sc=d.scenarios||{};
 
-  const bestLabel = mi.best_model === 'log_arima'
-    ? `log-ARIMA(${mi.arima_order?.p},${mi.arima_order?.d},${mi.arima_order?.q})`
-    : (mi.ets_spec || 'ETS');
-  const arima_label = `log-ARIMA(${mi.arima_order?.p},${mi.arima_order?.d},${mi.arima_order?.q})`;
+  // 決定三個模型的標籤
+  const arima_label=`log-ARIMA(${mi.arima_order?.p},${mi.arima_order?.d},${mi.arima_order?.q})`;
+  const ets_label  =mi.ets_spec  ||'ETS';
+  const holt_label =mi.holt_spec ||'Holt(damped=True)';
+  const best_m     =mi.best_model||'';
+  const bestCol={'log_arima':'#38bdf8','ets':'#a78bfa','holt':'#4ade80'}[best_m]||'#e2e8f0';
 
-  const lbColor  = val.lb_pass === true ? '#4ade80' : val.lb_pass === false ? '#f87171' : '#94a3b8';
-  const lbText   = val.lb_pass === true ? '✓ 通過（殘差為白噪音）' : val.lb_pass === false ? '✗ 未通過（存在自相關）' : '—';
-  const mapeColor = val.mape != null ? (val.mape < 5 ? '#4ade80' : val.mape < 10 ? '#fbbf24' : '#f87171') : '#94a3b8';
+  const lbColor =val.lb_pass===true?'#4ade80':val.lb_pass===false?'#f87171':'#94a3b8';
+  const lbText  =val.lb_pass===true?'✓ 通過（殘差為白噪音）':val.lb_pass===false?'✗ 未通過（存在自相關）':'—';
+  const mapeCol =val.mape!=null?(val.mape<5?'#4ade80':val.mape<10?'#fbbf24':'#f87171'):'#94a3b8';
 
-  document.getElementById('modelValidBody').innerHTML = `
-    <table style="width:100%;border-collapse:collapse">
+  // ADF + KPSS 雙重檢定結果
+  const d_tests =d.d_tests||{}; const d_reason=d.d_reason||'';
+  const adf_o   =d_tests.adf_orig ||{}; const kpss_o=d_tests.kpss_orig||{};
+  const adf_d1  =d_tests.adf_diff1||{}; const kpss_d1=d_tests.kpss_diff1||{};
+  const oos_rmse=mi.oos_rmse||{}; const sel_meth=mi.selection_method||'OOS RMSE';
+
+  // Holt 參數
+  const hp=mi.holt_params||{};
+
+  document.getElementById('modelValidBody').innerHTML=`
+    <div style="margin-bottom:8px;padding:6px 8px;background:rgba(56,189,248,.06);border-radius:4px;font-size:10.5px">
+      <strong style="color:#e2e8f0">選模標準：</strong><span style="color:#64748b">${sel_meth}</span><br>
+      OOS RMSE → log-ARIMA: <strong>${oos_rmse.log_arima??'—'}</strong>，
+      ETS: <strong>${oos_rmse.ets??'—'}</strong>，
+      Holt: <strong>${oos_rmse.holt??'—'}</strong>
+      → 選用 <strong style="color:${bestCol}">${
+        {log_arima:arima_label,ets:ets_label,holt:holt_label}[best_m]||best_m
+      }</strong>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
       <tr style="border-bottom:1px solid #1e293b">
         <th style="text-align:left;color:#64748b;padding:4px 8px;font-weight:400">指標</th>
-        <th style="text-align:right;color:#64748b;padding:4px 8px;font-weight:400">${arima_label}</th>
-        <th style="text-align:right;color:#64748b;padding:4px 8px;font-weight:400">${mi.ets_spec||'ETS'}</th>
-        <th style="text-align:right;color:#a78bfa;padding:4px 8px;font-weight:600">✓ 選用</th>
+        <th style="text-align:right;color:#38bdf8;padding:4px 6px;font-size:10px">${arima_label}</th>
+        <th style="text-align:right;color:#a78bfa;padding:4px 6px;font-size:10px">${ets_label}</th>
+        <th style="text-align:right;color:#4ade80;padding:4px 6px;font-size:10px">${holt_label}</th>
+        <th style="text-align:right;color:#e2e8f0;padding:4px 8px;font-weight:600;font-size:10px">✓ 選用</th>
       </tr>
       <tr>
-        <td style="padding:4px 8px;color:#94a3b8">AIC</td>
-        <td style="text-align:right;padding:4px 8px">${mi.arima_aic!=null?Number(mi.arima_aic).toFixed(2):'—'}</td>
-        <td style="text-align:right;padding:4px 8px">${mi.ets_aic!=null?Number(mi.ets_aic).toFixed(2):'—'}</td>
-        <td style="text-align:right;padding:4px 8px;color:#a78bfa;font-weight:600">${mi.model_aic!=null?Number(mi.model_aic).toFixed(2):'—'}</td>
+        <td style="padding:4px 8px;color:#94a3b8">AIC（僅參考）</td>
+        <td style="text-align:right;padding:4px 6px;font-size:11px">${mi.arima_aic!=null?Number(mi.arima_aic).toFixed(1):'—'}</td>
+        <td style="text-align:right;padding:4px 6px;font-size:11px">${mi.ets_aic!=null?Number(mi.ets_aic).toFixed(1):'—'}</td>
+        <td style="text-align:right;padding:4px 6px;font-size:11px">${mi.holt_aic!=null?Number(mi.holt_aic).toFixed(1):'—'}</td>
+        <td style="text-align:right;padding:4px 8px;color:#64748b;font-size:10px">不可直接比較</td>
       </tr>
       <tr style="background:#0a0e17">
-        <td style="padding:4px 8px;color:#94a3b8">MAPE (%)</td>
-        <td colspan="2" style="text-align:right;padding:4px 8px">樣本內回測</td>
-        <td style="text-align:right;padding:4px 8px;color:${mapeColor};font-weight:600">${val.mape!=null?Number(val.mape).toFixed(2)+'%':'—'}</td>
+        <td style="padding:4px 8px;color:#94a3b8">樣本內 MAPE (%)</td>
+        <td colspan="3" style="text-align:right;padding:4px 6px;color:#64748b;font-size:10px">選用模型回測</td>
+        <td style="text-align:right;padding:4px 8px;color:${mapeCol};font-weight:600">${val.mape!=null?Number(val.mape).toFixed(2)+'%':'—'}</td>
       </tr>
       <tr>
         <td style="padding:4px 8px;color:#94a3b8">RMSE (kt)</td>
-        <td colspan="2"></td>
+        <td colspan="3"></td>
         <td style="text-align:right;padding:4px 8px">${val.rmse!=null?Number(val.rmse).toLocaleString():'—'}</td>
       </tr>
       <tr style="background:#0a0e17">
-        <td style="padding:4px 8px;color:#94a3b8">MAE (kt)</td>
-        <td colspan="2"></td>
-        <td style="text-align:right;padding:4px 8px">${val.mae!=null?Number(val.mae).toLocaleString():'—'}</td>
-      </tr>
-      <tr>
         <td style="padding:4px 8px;color:#94a3b8">R²</td>
-        <td colspan="2"></td>
+        <td colspan="3"></td>
         <td style="text-align:right;padding:4px 8px">${val.r2!=null?Number(val.r2).toFixed(4):'—'}</td>
       </tr>
-      <tr style="background:#0a0e17">
+      <tr>
         <td style="padding:4px 8px;color:#94a3b8">Ljung-Box Q(${val.lb_lag||10})</td>
-        <td colspan="2" style="text-align:right;padding:4px 8px">${val.lb_stat!=null?Number(val.lb_stat).toFixed(3):'—'}</td>
+        <td colspan="3" style="text-align:right;padding:4px 6px">${val.lb_stat!=null?Number(val.lb_stat).toFixed(3):'—'}</td>
         <td style="text-align:right;padding:4px 8px;color:${lbColor};font-weight:600">${lbText}</td>
       </tr>
-      <tr>
-        <td style="padding:4px 8px;color:#94a3b8">p-value</td>
-        <td colspan="2"></td>
-        <td style="text-align:right;padding:4px 8px">${val.lb_pval!=null?Number(val.lb_pval).toFixed(4):'—'}</td>
-      </tr>
+      ${hp.phi!=null?`<tr style="background:#0a0e17"><td style="padding:4px 8px;color:#94a3b8">Holt φ（阻尼係數）</td>
+        <td colspan="3"></td>
+        <td style="text-align:right;padding:4px 8px;color:#4ade80">${hp.phi} <span style="color:#475569;font-size:10px">（趨勢衰減率）</span></td></tr>`:''}
     </table>
-    <div style="margin-top:8px;font-size:10.5px;color:#475569;line-height:1.6">
-      ✦ AIC 最小者為最佳模型（Akaike, 1974）<br>
-      ✦ MAPE < 5% 優秀；5–10% 良好（Hyndman & Koehler, 2006）<br>
-      ✦ Ljung-Box p > 0.05 表示殘差無自相關（Ljung &amp; Box, 1978）
+    <div style="background:#0a0e17;border-radius:4px;padding:8px;font-size:10.5px;margin-bottom:8px">
+      <div style="color:#64748b;margin-bottom:4px;font-weight:600">▸ ADF + KPSS 雙重檢定（差分階數 d）</div>
+      <div style="color:#94a3b8">
+        原序列：ADF p=${adf_o.p??'—'}，KPSS p=${kpss_o.p??'—'}
+        ${adf_d1.p!=null?`<br>一階差分：ADF p=${adf_d1.p}，KPSS p=${kpss_d1.p??'—'}`:''}
+      </div>
+      <div style="color:#64748b;margin-top:4px;font-size:10px">${d_reason}</div>
+      <div style="color:#475569;margin-top:3px;font-size:10px">Kwiatkowski et al. (1992) JoE；Hyndman &amp; Athanasopoulos (2021)</div>
+    </div>
+    <div style="font-size:10.5px;color:#475569;line-height:1.7">
+      ✦ AIC 不可跨空間比較（Hyndman &amp; Koehler, 2006）— 以 OOS RMSE 為主要選模準則<br>
+      ✦ Holt damped trend：φ&lt;1 使趨勢衰減，防止長期外推發散（Gardner &amp; McKenzie, 1985）<br>
+      ✦ MAPE &lt; 5% 優秀；5–10% 良好（Hyndman &amp; Koehler, 2006）
     </div>`;
 
-  const citRows = Object.entries(sc).map(([k,s]) => `
+  const citRows=Object.entries(sc).map(([k,s])=>`
     <tr style="${k!=='bau'?'border-top:1px solid #1e293b':''}">
       <td style="padding:5px 8px;color:${s.color};font-weight:600">${s.label}</td>
       <td style="padding:5px 8px;text-align:right;color:#e2e8f0">${s.rate_note||'—'}</td>
     </tr>
     <tr style="background:#0a0e17">
-      <td colspan="2" style="padding:2px 8px 6px;color:#475569;font-size:10.5px">
-        ${s.citation||'—'}
-      </td>
+      <td colspan="2" style="padding:2px 8px 6px;color:#475569;font-size:10.5px">${s.citation||'—'}</td>
     </tr>`).join('');
 
-  document.getElementById('scenarioCitBody').innerHTML = `
+  document.getElementById('scenarioCitBody').innerHTML=`
     <table style="width:100%;border-collapse:collapse">${citRows}</table>
     <div style="margin-top:8px;font-size:10.5px;color:#475569;line-height:1.6">
-      ✦ AD-EF：Kaya (1990)；Ang &amp; Zhang (2000) Energy Policy
+      ✦ 折年率從最後資料年動態計算至目標年（非固定起算點）<br>
+      ✦ MC：歷史年變動率 bootstrap，無分布假設（Efron &amp; Tibshirani, 1993）<br>
+      ✦ Kaya (1990)；Ang &amp; Zhang (2000) Energy Policy
     </div>`;
 
   document.getElementById('validationSection').style.display='';
 }
+
 
 // ════════════════════════════════════════════════════════
 // ── 完整數據表 ───────────────────────────────────────────
