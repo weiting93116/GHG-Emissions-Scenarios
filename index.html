@@ -96,11 +96,11 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 .arima-order-display{display:flex;align-items:center;gap:6px;margin-bottom:20px;background:var(--ink3);border:1px solid var(--line2);border-radius:6px;padding:13px 18px;flex-wrap:wrap}
 .ord-val{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700}
 .ord-sep{font-size:22px;color:var(--muted)}
-.param-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:18px}
+.param-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:11px;margin-bottom:18px}
 .param-card{background:var(--ink3);border-radius:6px;padding:14px;border-left:3px solid}
-.param-card.pc-p{border-color:var(--sky)}.param-card.pc-d{border-color:var(--teal)}.param-card.pc-q{border-color:var(--violet)}
+.param-card.pc-p{border-color:var(--sky)}.param-card.pc-d{border-color:var(--teal)}.param-card.pc-q{border-color:var(--violet)}.param-card.pc-h{border-color:#4ade80}
 .pc-label{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;margin-bottom:7px}
-.param-card.pc-p .pc-label{color:var(--sky)}.param-card.pc-d .pc-label{color:var(--teal)}.param-card.pc-q .pc-label{color:var(--violet)}
+.param-card.pc-p .pc-label{color:var(--sky)}.param-card.pc-d .pc-label{color:var(--teal)}.param-card.pc-q .pc-label{color:var(--violet)}.param-card.pc-h .pc-label{color:#4ade80}
 .pc-text{font-size:12px;color:var(--mid);line-height:1.6}
 .info-box{background:var(--ink3);border:1px solid var(--line2);border-radius:6px;padding:13px 15px;margin-bottom:14px}
 .info-box .ib-title{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;margin-bottom:5px}
@@ -501,7 +501,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 
   <!-- ARIMA 參數說明 -->
   <div class="arima-panel">
-    <h2>🔬 Auto-ARIMA 參數說明與選擇邏輯</h2>
+    <h2>🔬 時間序列模型選擇：三模型競爭 + OOS RMSE</h2>
     <div class="arima-order-display">
       <span style="font-size:12px;color:var(--dim);margin-right:4px">選定：</span>
       <span class="ord-val" style="color:var(--teal)">ARIMA</span>
@@ -514,16 +514,21 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
       <span style="font-family:'JetBrains Mono',monospace;font-size:20px;color:var(--teal)"> )</span>
       <span style="margin-left:14px;font-size:12px;color:var(--dim);font-family:'JetBrains Mono',monospace">BIC = <span id="exp-aic">—</span></span>
       <span id="engine-badge" style="margin-left:10px;font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 9px;border-radius:100px;border:1px solid var(--line2);color:var(--muted)">—</span>
+      <span id="best-model-badge" style="margin-left:6px;font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 9px;border-radius:100px;border:1px solid #1e4060;color:#38bdf8;background:rgba(56,189,248,.07);display:none">選用：—</span>
     </div>
     <div class="warning-box" id="warnBox"></div>
     <div class="info-box">
-      <div class="ib-title" style="color:var(--amber)">▸ ADF 平穩性檢定</div>
+      <div class="ib-title" style="color:var(--amber)">▸ ADF + KPSS 雙重檢定（差分階數 d）</div>
       <div class="ib-text" id="adfText">—</div>
     </div>
     <div class="param-cards">
       <div class="param-card pc-p"><div class="pc-label">p = <span id="exp-p2">?</span></div><div class="pc-text" id="exp-p-text">—</div></div>
       <div class="param-card pc-d"><div class="pc-label">d = <span id="exp-d2">?</span></div><div class="pc-text" id="exp-d-text">—</div></div>
       <div class="param-card pc-q"><div class="pc-label">q = <span id="exp-q2">?</span></div><div class="pc-text" id="exp-q-text">—</div></div>
+      <div class="param-card pc-h" id="holtParamCard" style="display:none">
+        <div class="pc-label">Holt φ</div>
+        <div class="pc-text" id="holtParamText">—</div>
+      </div>
     </div>
     <div class="info-box" style="background:rgba(0,229,192,.04);border-color:rgba(0,229,192,.15)">
       <div class="ib-title" style="color:var(--teal)">▸ 綜合結論</div>
@@ -558,7 +563,7 @@ header{padding:32px 0 24px;display:flex;align-items:flex-start;justify-content:s
 (function(){
   var s = document.createElement('script');
   var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
-  var v='?v=1773412957753'; s.src = isLocal ? 'main.js'+v : '/GHG-Emissions-Scenarios/main.js'+v;
+  var v='?v=1773479960908v4'; s.src = isLocal ? 'main.js'+v : '/GHG-Emissions-Scenarios/main.js'+v;
   s.onerror = function(){ var s2=document.createElement('script'); s2.src='main.js'; document.body.appendChild(s2); };
   document.body.appendChild(s);
 })();

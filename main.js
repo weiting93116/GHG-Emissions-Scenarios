@@ -556,15 +556,33 @@ function render(d){
   // ARIMA 說明面板
   ['p','d','q'].forEach(k=>{document.getElementById('exp-'+k).textContent=o[k];document.getElementById('exp-'+k+'2').textContent=o[k]});
   document.getElementById('exp-aic').textContent=d.aic_table?.[0]?.AIC??'—';
-  document.getElementById('adfText').textContent=exp.adf_reason||'—';
+  // ADF+KPSS 雙重檢定結果
+  const dtests=d.d_tests||{}; const adf_o=dtests.adf_orig||{}; const kpss_o=dtests.kpss_orig||{};
+  const adf_d1=dtests.adf_diff1||{}; const kpss_d1=dtests.kpss_diff1||{};
+  document.getElementById('adfText').innerHTML=
+    `${d.d_reason||exp.adf_reason||'—'}<br>` +
+    `<span style="font-size:10px;color:#475569;font-family:'JetBrains Mono',monospace">` +
+    `原序列 ADF p=${adf_o.p??'—'}，KPSS p=${kpss_o.p??'—'}` +
+    (adf_d1.p!=null ? `　一階差分 ADF p=${adf_d1.p}，KPSS p=${kpss_d1.p??'—'}` : '') +
+    `</span>`;
   const eng=d.engine||'fallback';
   const badge=document.getElementById('engine-badge');
   if(eng==='pmdarima'){
-    badge.textContent='🔬 pmdarima · auto_arima · BIC';
+    badge.textContent='🔬 pmdarima · BIC + ADF/KPSS';
     badge.style.color='var(--teal)';badge.style.borderColor='var(--teal2)';badge.style.background='rgba(0,229,192,.07)';
   } else {
     badge.textContent='⚙️ 手工BIC窮舉 (fallback)';
     badge.style.color='var(--amber)';badge.style.borderColor='#a06f08';badge.style.background='rgba(245,158,11,.07)';
+  }
+  // 選用模型 badge
+  const bmbadge=document.getElementById('best-model-badge');
+  if(bmbadge && d.model_info){
+    const bm=d.model_info.best_model||'';
+    const bmLabel={'log_arima':`log-ARIMA(${o.p},${o.d},${o.q})`,'ets':d.model_info.ets_spec||'ETS','holt':d.model_info.holt_spec||'Holt(damped)'}[bm]||bm;
+    const bmColor={'log_arima':'#38bdf8','ets':'#a78bfa','holt':'#4ade80'}[bm]||'#e2e8f0';
+    bmbadge.textContent=`✓ 選用：${bmLabel}`;
+    bmbadge.style.color=bmColor; bmbadge.style.borderColor=bmColor.replace('ff','33');
+    bmbadge.style.background=`${bmColor}11`; bmbadge.style.display='';
   }
   const hl=(s,c)=>(s||'').replace(/\*\*(.*?)\*\*/g,`<strong style="color:${c}">$1</strong>`);
   document.getElementById('exp-p-text').innerHTML=hl(exp.p,'var(--sky)');
@@ -573,6 +591,19 @@ function render(d){
   document.getElementById('summaryText').innerHTML=hl(exp.summary,'var(--teal)');
   if(d.warning){const wb=document.getElementById('warnBox');wb.textContent=d.warning;wb.style.display='block'}
   document.getElementById('aicTbody').innerHTML=(d.aic_table||[]).map((r,i)=>`<tr class="${r.p===o.p&&r.q===o.q?'best':''}"><td>${i+1}</td><td>${r.p}</td><td>${r.d}</td><td>${r.q}</td><td>${r.AIC}</td></tr>`).join('');
+  // Holt 參數卡（只有選用 Holt 時才顯示）
+  const holtCard=document.getElementById('holtParamCard');
+  const holtText=document.getElementById('holtParamText');
+  if(holtCard && d.model_info?.best_model==='holt' && d.model_info?.holt_params){
+    const hp=d.model_info.holt_params;
+    holtCard.style.display='';
+    if(holtText) holtText.innerHTML=
+      `阻尼係數 φ = <strong style="color:#4ade80">${hp.phi??'—'}</strong><br>` +
+      `<span style="font-size:10px;color:#475569">φ &lt; 1 使趨勢隨時間衰減，防止長期外推線性發散。α=${hp.alpha??'—'}，β=${hp.beta??'—'}</span><br>` +
+      `<span style="font-size:10px;color:#475569">Gardner &amp; McKenzie (1985) Mgmt Sci</span>`;
+  } else if(holtCard){
+    holtCard.style.display='none';
+  }
 
   // ── 差分分析圖 ──
   const diag = d.diagnostics || {};
