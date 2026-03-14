@@ -1318,6 +1318,10 @@ def scenarios_only():
                       "bau_cagr": round(bau_cagr*100, 3),
                       "sigma_data": round(sigma_data*100, 3)})
 
+@app.route('/')
+def index():
+    return safe_json({"status": "ok", "service": "GHG Forecast API"})
+
 @app.route('/api/health')
 def api_health():
     return safe_json({"status":"running","allowed_origins": _allowed_list if not _allow_all else "*"})
