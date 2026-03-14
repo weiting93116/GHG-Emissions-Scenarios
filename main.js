@@ -954,6 +954,11 @@ function renderFcTable(d, sc) {
   document.getElementById('fcTableHead').innerHTML = `<tr>
     <th style="text-align:center;padding:6px 10px;min-width:52px">年份</th>
     <th style="text-align:right;padding:6px 10px;color:#94a3b8">實際排放</th>
+    <th style="text-align:right;padding:6px 10px;color:#60a5fa">CO₂ (kt)</th>
+    <th style="text-align:right;padding:6px 10px;color:#34d399">CH₄ (kt)</th>
+    <th style="text-align:right;padding:6px 10px;color:#f472b6">N₂O (kt)</th>
+    <th style="text-align:right;padding:6px 10px;color:#84cc16">土地匯 (kt)</th>
+    <th style="text-align:right;padding:6px 10px;color:#fb7185">淨排放 (kt)</th>
     <th style="text-align:right;padding:6px 10px;color:#38bdf8">ARIMA預測</th>
     <th style="text-align:right;padding:6px 10px;color:#475569">95%上界</th>
     <th style="text-align:right;padding:6px 10px;color:#475569">95%下界</th>
@@ -967,26 +972,36 @@ function renderFcTable(d, sc) {
 
   const histRows = hy.map((yr,i) => {
     const isKey = KEY.has(yr);
-    const v = d.hist_total?.[i];
+    const hrow = d.history_table?.[i] || {};
+    const v    = d.hist_total?.[i];
     const prev = i>0 ? d.hist_total[i-1] : null;
-    const chg = (v!=null&&prev!=null&&prev!==0) ? ((v-prev)/prev*100).toFixed(2)+'%' : '—';
+    const chg  = (v!=null&&prev!=null&&prev!==0) ? ((v-prev)/prev*100).toFixed(2)+'%' : '—';
     const chgCol = (v!=null&&prev!=null) ? (v<prev?'#4ade80':'#f87171') : '#475569';
+    const landVal = hrow.land;
+    const netVal  = hrow.net;
+    // 氣體欄：有 gas_results 預測才顯示欄位；歷史值從 history_table 取
     const gasVals = anyGas ? GAS.map((k,gi) => {
       if(!hasGas[gi]) return '';
-      const hg = d.history_table?.[i]; const gv = hg?.[k];
-      return `<td style="text-align:right;padding:4px 8px;color:${GAS_COLOR[gi]};opacity:.8">${fmt(gv)}</td>`;
+      const gv = hrow[k];
+      return `<td style="text-align:right;padding:4px 8px;color:${GAS_COLOR[gi]};opacity:.85">${fmt(gv)}</td>`;
     }).join('') : '';
     const bg = isKey ? 'background:rgba(167,139,250,.06)' : (i%2===0?'':'background:rgba(255,255,255,.015)');
-    return `<tr class="fc-hist-row" style="${bg};display:${_fcShowHist?'':'none'}">
+    const fw = isKey ? 'font-weight:600' : '';
+    return `<tr class="fc-hist-row" style="${bg};${fw};display:${_fcShowHist?'':'none'}">
       <td style="text-align:center;padding:4px 10px;color:${isKey?'#a78bfa':'#64748b'}">${yr}${isKey?'★':''}</td>
       <td style="text-align:right;padding:4px 10px;color:#e2e8f0">${fmt(v)}</td>
-      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
-      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
-      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
-      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
-      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
-      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
-      <td style="color:#334155;text-align:right;padding:4px 10px">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#60a5fa">${fmt(hrow.co2)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#34d399">${fmt(hrow.ch4)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#f472b6">${fmt(hrow.n2o)}</td>
+      <td style="text-align:right;padding:4px 10px;color:${landVal!=null&&landVal<0?'#fb7185':'#84cc16'}">${fmt(landVal)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#fb7185">${fmt(netVal)}</td>
+      <td style="text-align:right;padding:4px 10px;color:#38bdf8">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#475569">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#475569">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#475569">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#f59e0b">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#38bdf8">—</td>
+      <td style="text-align:right;padding:4px 10px;color:#00e5c0">—</td>
       <td style="text-align:right;padding:4px 10px;color:${chgCol}">${chg}</td>
       ${gasVals}
     </tr>`;
@@ -1010,6 +1025,11 @@ function renderFcTable(d, sc) {
     const star = isKey ? '★' : isMid ? '·' : '';
     return `<tr class="fc-fc-row" style="${bg};${fw}">
       <td style="text-align:center;padding:4px 10px;color:${isKey?'#a78bfa':'#475569'}">${yr}${star}</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
+      <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
       <td style="color:#1e293b;text-align:right;padding:4px 10px">—</td>
       <td style="text-align:right;padding:4px 10px;color:#38bdf8;font-weight:${isKey?700:400}">${fmt(fc)}</td>
       <td style="text-align:right;padding:4px 10px;color:#64748b">${fmt(up)}</td>
